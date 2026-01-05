@@ -1,30 +1,31 @@
 package com.example.it_scann
 
 import android.content.pm.PackageManager
+import android.graphics.Matrix
 import android.os.Bundle
 import android.util.Log
+import android.view.SurfaceView
 import androidx.appcompat.app.AppCompatActivity
 import org.opencv.android.BaseLoaderCallback
 import org.opencv.android.CameraBridgeViewBase
+import org.opencv.android.JavaCameraView
 import org.opencv.android.LoaderCallbackInterface
 import org.opencv.android.OpenCVLoader
 import org.opencv.core.Mat
 
+
 class camera_scan : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListener2 {
 
-    private lateinit var cameraView: CameraBridgeViewBase
+    private lateinit var cameraView: JavaCameraView
     private val CAMERA_PERMISSION_REQUEST = 101
 
     private val loaderCallback = object : BaseLoaderCallback(this) {
         override fun onManagerConnected(status: Int) {
-            when (status) {
-                LoaderCallbackInterface.SUCCESS -> {
-                    Log.d("camera_scan", "OpenCV loaded successfully")
-                    cameraView.enableView()
-                }
-                else -> {
-                    super.onManagerConnected(status)
-                }
+            if (status == LoaderCallbackInterface.SUCCESS) {
+                Log.d("camera_scan", "OpenCV initialized")
+                cameraView.enableView()
+            } else {
+                super.onManagerConnected(status)
             }
         }
     }
@@ -34,24 +35,16 @@ class camera_scan : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListen
         setContentView(R.layout.activity_camera_scan)
 
         cameraView = findViewById(R.id.camera_view)
-        cameraView.visibility = CameraBridgeViewBase.VISIBLE
+        cameraView.visibility = SurfaceView.VISIBLE
         cameraView.setCvCameraViewListener(this)
-        cameraView.setCameraIndex(0) // Use back camera
+        cameraView.setCameraIndex(CameraBridgeViewBase.CAMERA_ID_BACK)
 
-        if (checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(android.Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
-        } else {
-            initializeOpenCV()
-        }
-    }
-
-    private fun initializeOpenCV() {
-        if (!OpenCVLoader.initDebug()) {
-            Log.d("camera_scan", "Internal OpenCV library not found, using OpenCV Manager for initialization")
-            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION, this, loaderCallback)
-        } else {
-            Log.d("camera_scan", "OpenCV library found inside package. Using it!")
-            loaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS)
+        if (checkSelfPermission(android.Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                arrayOf(android.Manifest.permission.CAMERA),
+                CAMERA_PERMISSION_REQUEST
+            )
         }
     }
 
@@ -61,22 +54,43 @@ class camera_scan : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListen
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == CAMERA_PERMISSION_REQUEST) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                initializeOpenCV()
-            } else {
-                Log.e("camera_scan", "Camera permission denied")
-                finish() // Or show message and disable functionality
-            }
+
+        if (requestCode == CAMERA_PERMISSION_REQUEST &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+            // 🔥 REQUIRED
+            cameraView.setCameraPermissionGranted()
+
+            onResume()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (::cameraView.isInitialized && checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            initializeOpenCV()
+
+        if (checkSelfPermission(android.Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_GRANTED) {
+
+            // 🔥 REQUIRED for Samsung / Android 11
+            cameraView.setCameraPermissionGranted()
+
+            if (!OpenCVLoader.initDebug()) {
+                Log.d("camera_scan", "Using OpenCV Manager")
+                OpenCVLoader.initAsync(
+                    OpenCVLoader.OPENCV_VERSION,
+                    this,
+                    loaderCallback
+                )
+            } else {
+                Log.d("camera_scan", "OpenCV loaded")
+                loaderCallback.onManagerConnected(
+                    LoaderCallbackInterface.SUCCESS
+                )
+            }
         }
     }
+
 
     override fun onPause() {
         super.onPause()
@@ -100,8 +114,8 @@ class camera_scan : AppCompatActivity(), CameraBridgeViewBase.CvCameraViewListen
         Log.d("camera_scan", "Camera view stopped")
     }
 
-    override fun onCameraFrame(inputFrame: CameraBridgeViewBase.CvCameraViewFrame?): Mat {
-        Log.d("camera_scan", "onCameraFrame called")
-        return inputFrame?.rgba() ?: Mat()
+    override fun onCameraFrame(inputFrame: CameraBridgeViewBase.CvCameraViewFrame): Mat {
+        return inputFrame.rgba()
+
     }
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.IT_scann" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.IT_scann" parent="Theme.AppCompat.Light.NoActionBar" />
 
     <style name="Theme.app.SplashScreen" parent = "Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/white</item>

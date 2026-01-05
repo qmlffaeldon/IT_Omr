@@ -16,23 +16,22 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.it_scann.ui.theme.IT_scannTheme
 import org.opencv.android.OpenCVLoader
+import android.content.Intent
 
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        Thread.sleep(166)
         installSplashScreen()
         setContentView(R.layout.home_activity)
-        Log.d("opencvkc", "Message OpenCV is: ${OpenCVLoader.initDebug()}")
 
-        findViewById<Button>(R.id.btn_scan)
-            .setOnClickListener {
-                setContentView(R.layout.activity_camera_scan)
-                print("birth")
-            }
+        Log.d("MainActivity", "OpenCV init: ${OpenCVLoader.initDebug()}")
 
+        findViewById<Button>(R.id.btn_scan).setOnClickListener {
+            Log.d("MainActivity", "Scan button clicked")
+            startActivity(Intent(this, camera_scan::class.java))
+        }
     }
-
 }

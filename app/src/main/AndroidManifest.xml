@@ -3,7 +3,12 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="true" />
+
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="true" />
+
+
 
 
     <application
@@ -17,7 +22,9 @@
         android:theme="@style/Theme.IT_scann">
         <activity
             android:name=".camera_scan"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/Theme.IT_scann"
+            android:configChanges="orientation|screenSize"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"
