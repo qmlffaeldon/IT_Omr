@@ -8,9 +8,6 @@
         android:name="android.hardware.camera"
         android:required="true" />
 
-
-
-
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -21,10 +18,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.IT_scann">
         <activity
-            android:name=".camera_scan"
+            android:name=".ui.theme.Answer_key"
+            android:exported="false" />
+        <activity
+            android:name=".Answer_key"
             android:exported="false"
-            android:theme="@style/Theme.IT_scann"
-            android:configChanges="orientation|screenSize"/>
+            android:theme="@style/Theme.IT_scann" />
+        <activity
+            android:name=".camera_scan"
+            android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

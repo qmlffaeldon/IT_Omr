@@ -3,11 +3,16 @@
 
     <style name="Theme.IT_scann" parent="Theme.AppCompat.Light.NoActionBar" />
 
-    <style name="Theme.app.SplashScreen" parent = "Theme.SplashScreen">
+    <style name="Theme.app.SplashScreen" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/white</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ntc</item>
 
         <item name="postSplashScreenTheme">@style/Theme.IT_scann</item>
+    </style>
+    <!-- Base application theme. -->
+    <style name="Base.Theme.IT_scann" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Customize your light theme here. -->
+        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
     </style>
 
 </resources>

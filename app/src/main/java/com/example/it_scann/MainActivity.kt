@@ -17,6 +17,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.it_scann.ui.theme.IT_scannTheme
 import org.opencv.android.OpenCVLoader
 import android.content.Intent
+import com.example.it_scann.ui.theme.Answer_key
 
 class MainActivity : ComponentActivity() {
 
@@ -33,5 +34,11 @@ class MainActivity : ComponentActivity() {
             Log.d("MainActivity", "Scan button clicked")
             startActivity(Intent(this, camera_scan::class.java))
         }
+
+        findViewById<Button>(R.id.btn_results).setOnClickListener {
+            Log.d("MainActivity", "Scan button clicked")
+            startActivity(Intent(this, Answer_key::class.java))
+        }
+
     }
 }
