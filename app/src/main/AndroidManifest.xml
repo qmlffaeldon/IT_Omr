@@ -18,9 +18,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.IT_scann">
         <activity
-            android:name=".ui.theme.Answer_key"
-            android:exported="false" />
-        <activity
             android:name=".Answer_key"
             android:exported="false"
             android:theme="@style/Theme.IT_scann" />
