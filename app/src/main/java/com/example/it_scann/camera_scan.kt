@@ -21,6 +21,28 @@ import com.example.it_scann.analyzeImageFile
 
 class camera_scan : AppCompatActivity() {
 
+    private val galleryLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            Log.d("OMR", "Image selected from gallery: $uri")
+
+            if (!OpenCVLoader.initDebug()) {
+                Log.e("OMR", "OpenCV initialization failed!")
+                return@registerForActivityResult
+            } else {
+                Log.d("OMR", "OpenCV loaded successfully")
+            }
+
+            Thread {
+                try {
+                    analyzeImageFile(this, uri)
+                } catch (e: Exception) {
+                    Log.e("OMR", "Error analyzing gallery image", e)
+                }
+            }.start()
+        }
+    }
     private lateinit var previewView: PreviewView
     private val cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -50,6 +72,11 @@ class camera_scan : AppCompatActivity() {
                 arrayOf(Manifest.permission.CAMERA),
                 101
             )
+        }
+
+        val uploadBtn = findViewById<Button>(R.id.btnUpload)
+        uploadBtn.setOnClickListener {
+            galleryLauncher.launch("image/*")
         }
     }
 

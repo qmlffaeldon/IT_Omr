@@ -158,7 +158,7 @@ fun thresholdForOMR(context: Context, src: Mat): Mat {
         255.0,
         Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
         Imgproc.THRESH_BINARY_INV,
-        31,
+        75,
         15.0
     )
 
