@@ -2,12 +2,12 @@ package com.example.it_scann
 
 import android.Manifest
 import android.content.ContentValues
-import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.Button
+import android.widget.ImageButton
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -16,10 +16,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
-import com.example.it_scann.analyzeImageFile
 
 
-class camera_scan : AppCompatActivity() {
+class CameraScan : AppCompatActivity() {
 
     private val galleryLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -47,6 +46,8 @@ class camera_scan : AppCompatActivity() {
     private val cameraExecutor = Executors.newSingleThreadExecutor()
 
     private var imageCapture: ImageCapture? = null  // add this
+    private var camera: Camera? = null
+    private var isFlashOn = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +59,7 @@ class camera_scan : AppCompatActivity() {
         OpenCVLoader.initDebug()
 
         // Setup your Capture Button from your layout
-        val captureButton = findViewById<Button>(R.id.camera_tp) // make sure you have this in your XML
+        val captureButton = findViewById<ImageButton>(R.id.btn_capture) // make sure you have this in your XML
 
         captureButton.setOnClickListener {
             takePhoto()
@@ -74,9 +75,28 @@ class camera_scan : AppCompatActivity() {
             )
         }
 
-        val uploadBtn = findViewById<Button>(R.id.btnUpload)
+        val uploadBtn = findViewById<ImageButton>(R.id.btn_upload)
         uploadBtn.setOnClickListener {
             galleryLauncher.launch("image/*")
+        }
+
+        val flashBtn = findViewById<ImageButton>(R.id.btn_flash)
+
+        flashBtn.setOnClickListener {
+            if (camera != null && camera!!.cameraInfo.hasFlashUnit()) {
+
+                isFlashOn = !isFlashOn
+
+                camera!!.cameraControl.enableTorch(isFlashOn)
+
+                if (isFlashOn) {
+                    flashBtn.setImageResource(R.drawable.ic_flash_on)
+                    flashBtn.background.setTint(Color.YELLOW)
+                } else {
+                    flashBtn.setImageResource(R.drawable.ic_flash_off)
+                    flashBtn.background.setTint(Color.WHITE)
+                }
+            }
         }
     }
 
@@ -110,7 +130,7 @@ class camera_scan : AppCompatActivity() {
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
+            camera = cameraProvider.bindToLifecycle(
                 this,
                 cameraSelector,
                 preview,
@@ -149,7 +169,7 @@ class camera_scan : AppCompatActivity() {
 
                     if (savedUri != null) {
                         // Now load your image from MediaStore URI directly
-                        analyzeImageFile(this@camera_scan,savedUri)
+                        analyzeImageFile(this@CameraScan,savedUri)
                     } else {
                         Log.e("CameraX", "Saved URI is null")
                     }
