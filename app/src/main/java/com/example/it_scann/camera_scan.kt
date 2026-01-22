@@ -14,12 +14,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
 import com.example.it_scann.analyzeImageFile
+import kotlinx.coroutines.launch
 
 
 class camera_scan : AppCompatActivity() {
+
 
     private val galleryLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -36,7 +39,10 @@ class camera_scan : AppCompatActivity() {
 
             Thread {
                 try {
-                    analyzeImageFile(this, uri)
+                    //analyzeImageFile(this@camera_scan, savedUri) { detected ->
+                       // onAnswersDetected(detected)
+                    //}
+
                 } catch (e: Exception) {
                     Log.e("OMR", "Error analyzing gallery image", e)
                 }
@@ -45,7 +51,18 @@ class camera_scan : AppCompatActivity() {
     }
     private lateinit var previewView: PreviewView
     private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val answerKeyDao by lazy {
+        AppDatabase.getDatabase(this).answerKeyDao()
+    }
 
+    fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>) {
+        lifecycleScope.launch {
+            val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao)
+            scores.forEach { (testNumber, score) ->
+                Log.d("OMR", "Test $testNumber scored $score / 25")
+            }
+        }
+    }
     private var imageCapture: ImageCapture? = null  // add this
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -149,7 +166,11 @@ class camera_scan : AppCompatActivity() {
 
                     if (savedUri != null) {
                         // Now load your image from MediaStore URI directly
-                        analyzeImageFile(this@camera_scan,savedUri)
+                        analyzeImageFile(this@camera_scan, savedUri) { detected ->
+                            onAnswersDetected(detected)
+                        }
+
+
                     } else {
                         Log.e("CameraX", "Saved URI is null")
                     }

@@ -18,6 +18,11 @@ import androidx.core.graphics.createBitmap
 private const val DEBUG_DRAW = true
 
 /* ====================== CAMERA ANALYZER ====================== */
+data class DetectedAnswer(
+    val testNumber: Int,
+    val questionNumber: Int,
+    val detected: Int
+)
 
 class OpenCVAnalyzer(
     private val context: Context
@@ -34,10 +39,14 @@ class OpenCVAnalyzer(
 
             val thresh = thresholdForOMR(context, warped)
 
-            val answers = mutableListOf<String>()
-            processAnswerSheetGrid(context, thresh, warped, answers)
+            val detectedAnswers = mutableListOf<DetectedAnswer>()
+            val testNumber = 0 // or get from intent / UI
+            processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
 
-            answers.forEach { Log.d("OMR", it) }
+
+
+            detectedAnswers.forEach { Log.d("OMR", it.toString()) }
+
 
             thresh.release()
             warped.release()
@@ -54,7 +63,11 @@ class OpenCVAnalyzer(
 
 /* ====================== FILE ANALYSIS ====================== */
 
-fun analyzeImageFile(context: Context, imageUri: Uri) {
+fun analyzeImageFile(
+    context: Context,
+    imageUri: Uri,
+    onDetected: (List<DetectedAnswer>) -> Unit
+) {
     context.contentResolver.openInputStream(imageUri)?.use { input ->
         val bitmap = BitmapFactory.decodeStream(input) ?: return
 
@@ -69,14 +82,19 @@ fun analyzeImageFile(context: Context, imageUri: Uri) {
 
         val thresh = thresholdForOMR(context, warped)
 
-        val answers = mutableListOf<String>()
-        processAnswerSheetGrid(context, thresh, warped, answers)
+        val detectedAnswers = mutableListOf<DetectedAnswer>()
+        val testNumber = 0// or get from intent / UI
+        processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
 
-        answers.forEach { Log.d("OMR", it) }
+
+
+        detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
         thresh.release()
         warped.release()
         rotated.release()
+        onDetected(detectedAnswers)
+
     }
 }
 
@@ -174,8 +192,10 @@ fun processAnswerSheetGrid(
     context: Context,
     thresh: Mat,
     debugMat: Mat,
-    answers: MutableList<String>
-) {
+    testNumber: Int,
+    answers: MutableList<DetectedAnswer>
+)
+ {
     val questions = 25
     val choices = 4
     val labels = listOf("A", "B", "C", "D")
@@ -189,7 +209,7 @@ fun processAnswerSheetGrid(
         Column("Elem 4b", 0.78, 0.20,0.08,0.90)
     )
 
-    for (col in columns) {
+     for ((testNumber, col) in columns.withIndex()) {
 
         val imgH = thresh.rows()
         val imgW = thresh.cols()
@@ -254,20 +274,36 @@ fun processAnswerSheetGrid(
             val minFill = avgFill * 1.2
             val dominanceRatio = 1.4
 
-            val answer = when {
-                best.second < minFill -> "INVALID"
-                best.second / second.second < dominanceRatio -> "MULTIPLE"
-                else -> labels[best.first]
+            val detectedValue = when {
+                best.second < minFill -> -1          // INVALID
+                best.second / second.second < dominanceRatio -> -2 // MULTIPLE
+                else -> best.first                  // A=0, B=1, C=2, D=3
             }
 
-            answers.add("${col.name} - Q${q + 1}: $answer")
+            answers.add(
+                DetectedAnswer(
+                    testNumber = testNumber,
+                    questionNumber = q + 1,
+                    detected = detectedValue
+                )
+            )
+            Log.d("OMR", "${col.name} Q${q + 1} → $detectedValue")
 
-            if (answer in labels) {
-                val cx = xStart + best.first * cWidth + cWidth / 2
+
+
+            if (detectedValue in 0..3) {
+                val cx = xStart + detectedValue * cWidth + cWidth / 2
                 val cy = yStart + q * qHeight + qHeight / 2
-                Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(0.0, 0.0, 255.0), 3)
 
+                Imgproc.circle(
+                    debugMat,
+                    Point(cx.toDouble(), cy.toDouble()),
+                    10,
+                    Scalar(0.0, 0.0, 255.0),
+                    3
+                )
             }
+
 
             Imgproc.rectangle(
                 debugMat,
