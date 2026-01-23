@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.widget.Button
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -26,9 +27,9 @@ class camera_scan : AppCompatActivity() {
 
     private val galleryLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri: android.net.Uri? ->
-        if (uri != null) {
-            Log.d("OMR", "Image selected from gallery: $uri")
+    ) { savedUri: android.net.Uri? ->
+        if (savedUri != null) {
+            Log.d("OMR", "Image selected from gallery: $savedUri")
 
             if (!OpenCVLoader.initDebug()) {
                 Log.e("OMR", "OpenCV initialization failed!")
@@ -39,9 +40,9 @@ class camera_scan : AppCompatActivity() {
 
             Thread {
                 try {
-                    //analyzeImageFile(this@camera_scan, savedUri) { detected ->
-                       // onAnswersDetected(detected)
-                    //}
+                    analyzeImageFile(this@camera_scan, savedUri) { detected ->
+                        onAnswersDetected(detected)
+                    }
 
                 } catch (e: Exception) {
                     Log.e("OMR", "Error analyzing gallery image", e)
@@ -70,6 +71,8 @@ class camera_scan : AppCompatActivity() {
         setContentView(R.layout.activity_camera_scan)
 
         previewView = findViewById(R.id.previewView)
+       // previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+
 
         // Init OpenCV
         OpenCVLoader.initDebug()
@@ -110,19 +113,9 @@ class camera_scan : AppCompatActivity() {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
-            // Setup ImageCapture use case
             imageCapture = ImageCapture.Builder()
                 .setTargetRotation(previewView.display.rotation)
                 .build()
-
-            // We can remove or keep ImageAnalysis if needed; for snapshot processing, you can skip it
-            // val imageAnalysis = ImageAnalysis.Builder()
-            //    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            //    .setTargetRotation(previewView.display.rotation)
-            //    .build()
-            //    .also {
-            //        it.setAnalyzer(cameraExecutor, OpenCVAnalyzer())
-            //    }
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
