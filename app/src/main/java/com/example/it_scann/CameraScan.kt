@@ -14,17 +14,20 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
+import com.example.it_scann.analyzeImageFile
+import kotlinx.coroutines.launch
 
 
 class CameraScan : AppCompatActivity() {
 
     private val galleryLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri: android.net.Uri? ->
-        if (uri != null) {
-            Log.d("OMR", "Image selected from gallery: $uri")
+    ) { savedUri: android.net.Uri? ->
+        if (savedUri != null) {
+            Log.d("OMR", "Image selected from gallery: $savedUri")
 
             if (!OpenCVLoader.initDebug()) {
                 Log.e("OMR", "OpenCV initialization failed!")
@@ -35,7 +38,9 @@ class CameraScan : AppCompatActivity() {
 
             Thread {
                 try {
-                    analyzeImageFile(this, uri)
+                    analyzeImageFile(this@CameraScan, savedUri) { detected ->
+                        onAnswersDetected(detected)
+                    }
                 } catch (e: Exception) {
                     Log.e("OMR", "Error analyzing gallery image", e)
                 }
@@ -44,7 +49,18 @@ class CameraScan : AppCompatActivity() {
     }
     private lateinit var previewView: PreviewView
     private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val answerKeyDao by lazy {
+        AppDatabase.getDatabase(this).answerKeyDao()
+    }
 
+    fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>) {
+        lifecycleScope.launch {
+            val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao)
+            scores.forEach { (testNumber, score) ->
+                Log.d("OMR", "Test $testNumber scored $score / 25")
+            }
+        }
+    }
     private var imageCapture: ImageCapture? = null  // add this
     private var camera: Camera? = null
     private var isFlashOn = false
@@ -169,7 +185,9 @@ class CameraScan : AppCompatActivity() {
 
                     if (savedUri != null) {
                         // Now load your image from MediaStore URI directly
-                        analyzeImageFile(this@CameraScan,savedUri)
+                        analyzeImageFile(this@CameraScan, savedUri) { detected ->
+                            onAnswersDetected(detected)
+                        }
                     } else {
                         Log.e("CameraX", "Saved URI is null")
                     }
@@ -182,7 +200,3 @@ class CameraScan : AppCompatActivity() {
         )
     }
 }
-
-
-
-

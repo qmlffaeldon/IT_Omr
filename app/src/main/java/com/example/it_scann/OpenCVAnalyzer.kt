@@ -18,6 +18,11 @@ import androidx.core.graphics.createBitmap
 private const val DEBUG_DRAW = true
 
 /* ====================== CAMERA ANALYZER ====================== */
+data class DetectedAnswer(
+    val testNumber: Int,
+    val questionNumber: Int,
+    val detected: Int
+)
 
 class OpenCVAnalyzer(
     private val context: Context
@@ -34,10 +39,14 @@ class OpenCVAnalyzer(
 
             val thresh = thresholdForOMR(context, warped)
 
-            val answers = mutableListOf<String>()
-            processAnswerSheetGrid(context, thresh, warped, answers)
+            val detectedAnswers = mutableListOf<DetectedAnswer>()
+            val testNumber = 0 // or get from intent / UI
+            processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
 
-            answers.forEach { Log.d("OMR", it) }
+
+
+            detectedAnswers.forEach { Log.d("OMR", it.toString()) }
+
 
             thresh.release()
             warped.release()
@@ -54,7 +63,11 @@ class OpenCVAnalyzer(
 
 /* ====================== FILE ANALYSIS ====================== */
 
-fun analyzeImageFile(context: Context, imageUri: Uri) {
+fun analyzeImageFile(
+    context: Context,
+    imageUri: Uri,
+    onDetected: (List<DetectedAnswer>) -> Unit
+) {
     context.contentResolver.openInputStream(imageUri)?.use { input ->
         val bitmap = BitmapFactory.decodeStream(input) ?: return
 
@@ -69,14 +82,19 @@ fun analyzeImageFile(context: Context, imageUri: Uri) {
 
         val thresh = thresholdForOMR(context, warped)
 
-        val answers = mutableListOf<String>()
-        processAnswerSheetGrid(context, thresh, warped, answers)
+        val detectedAnswers = mutableListOf<DetectedAnswer>()
+        val testNumber = 0// or get from intent / UI
+        processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
 
-        answers.forEach { Log.d("OMR", it) }
+
+
+        detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
         thresh.release()
         warped.release()
         rotated.release()
+        onDetected(detectedAnswers)
+
     }
 }
 
@@ -174,8 +192,10 @@ fun processAnswerSheetGrid(
     context: Context,
     thresh: Mat,
     debugMat: Mat,
-    answers: MutableList<String>
-) {
+    testNumber: Int,
+    answers: MutableList<DetectedAnswer>
+)
+ {
     val questions = 25
     val choices = 4
     val labels = listOf("A", "B", "C", "D")
@@ -189,7 +209,30 @@ fun processAnswerSheetGrid(
         Column("Elem 4b", 0.78, 0.20,0.08,0.90)
     )
 
-    for (col in columns) {
+     // Will be used for having multiple Test types i.e (A,B,C,D) with differing elements
+     /* val RadioAmateurD = listOf(
+         Column("Elem 1", 0.05, 0.20,0.08,0.90)
+     )
+
+     val RadioAmateurC = listOf(
+         Column("Elem 2", 0.05, 0.20,0.08,0.90),
+         Column("Elem 3", 0.30, 0.20,0.08,0.90),
+         Column("Elem 4", 0.54, 0.20,0.08,0.90)
+     )
+
+     val RadioAmateurB = listOf(
+         Column("Elem 5", 0.05, 0.20,0.08,0.90),
+         Column("Elem 6", 0.30, 0.20,0.08,0.90),
+         Column("Elem 7", 0.54, 0.20,0.08,0.90)
+     )
+     val RadioAmateurA = listOf(
+         Column("Elem 8", 0.05, 0.20,0.08,0.90),
+         Column("Elem 9", 0.30, 0.20,0.08,0.90),
+         Column("Elem 10", 0.54, 0.20,0.08,0.90)
+     )
+    */
+
+     for ((testNumber, col) in columns.withIndex()) {
 
         val imgH = thresh.rows()
         val imgW = thresh.cols()
@@ -214,15 +257,25 @@ fun processAnswerSheetGrid(
                 val padX = (cWidth * 0.15).toInt()
                 val padY = (qHeight * 0.10).toInt()
 
-                val y1 = q * qHeight
-                val y2 = minOf((q + 1) * qHeight, colMat.rows())
+                val centerY = ((q + 0.5) * qHeight).toInt()
+                val y1 = (centerY - qHeight * 0.35).toInt()
+                val y2 = (centerY + qHeight * 0.35).toInt()
+
 
                 val x1 = c * cWidth
                 val x2 = minOf((c + 1) * cWidth, colMat.cols())
 
                 if (y2 <= y1 || x2 <= x1) continue
 
-                val roi = colMat.submat(y1, y2, x1, x2)
+                val rx1 = (x1 + padX).coerceAtLeast(0)
+                val ry1 = (y1 + padY).coerceAtLeast(0)
+                val rx2 = (x2 - padX).coerceAtMost(colMat.cols())
+                val ry2 = (y2 - padY).coerceAtMost(colMat.rows())
+
+                if (rx2 <= rx1 || ry2 <= ry1) continue
+
+                val roi = colMat.submat(ry1, ry2, rx1, rx2)
+
 
 
                 val filledPixels = Core.countNonZero(roi)
@@ -254,20 +307,35 @@ fun processAnswerSheetGrid(
             val minFill = avgFill * 1.2
             val dominanceRatio = 1.4
 
-            val answer = when {
-                best.second < minFill -> "INVALID"
-                best.second / second.second < dominanceRatio -> "MULTIPLE"
-                else -> labels[best.first]
+            val detectedValue = when {
+                best.second < minFill -> -1 // INVALID
+                second.second > best.second * 0.75 -> -2 // MULTIPLE
+                else -> best.first
             }
+            answers.add(
+                DetectedAnswer(
+                    testNumber = testNumber,
+                    questionNumber = q + 1,
+                    detected = detectedValue
+                )
+            )
+            Log.d("OMR", "${col.name} Q${q + 1} → $detectedValue")
 
-            answers.add("${col.name} - Q${q + 1}: $answer")
 
-            if (answer in labels) {
-                val cx = xStart + best.first * cWidth + cWidth / 2
+
+            if (detectedValue in 0..3) {
+                val cx = xStart + detectedValue * cWidth + cWidth / 2
                 val cy = yStart + q * qHeight + qHeight / 2
-                Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(0.0, 0.0, 255.0), 3)
 
+                Imgproc.circle(
+                    debugMat,
+                    Point(cx.toDouble(), cy.toDouble()),
+                    10,
+                    Scalar(0.0, 0.0, 255.0),
+                    3
+                )
             }
+
 
             Imgproc.rectangle(
                 debugMat,
@@ -317,10 +385,15 @@ fun saveDebugMat(context: Context, mat: Mat, name: String) {
     val bitmap = createBitmap(mat.cols(), mat.rows())
     Utils.matToBitmap(mat, bitmap)
 
+    val filename = "${name}_${System.currentTimeMillis()}.jpg"
+
     val values = ContentValues().apply {
-        put(MediaStore.MediaColumns.DISPLAY_NAME, "$name.jpg")
+        put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/OMR")
+        put(
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            Environment.DIRECTORY_DCIM + "/OMR"
+        )
     }
 
     context.contentResolver.insert(
