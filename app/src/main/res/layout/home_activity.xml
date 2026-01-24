@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -12,10 +11,10 @@
         android:layout_height="0dp"
         android:layout_marginTop="372dp"
         android:layout_marginBottom="33dp"
-        android:background="@drawable/ripple_effect"
+        android:background="@drawable/ripple_effect_default"
         android:fontFamily="sans-serif-medium"
         android:gravity="center"
-        android:text="Scan Answer Sheet"
+        android:text="@string/button_text_scan"
         android:textAllCaps="false"
         android:textColor="@android:color/white"
         android:textSize="17sp"
@@ -35,7 +34,7 @@
         android:layout_marginBottom="386dp"
         android:background="@drawable/btn_secondary"
         android:fontFamily="sans-serif-medium"
-        android:text="Answer key"
+        android:text="@string/button_text_key"
         android:textAllCaps="false"
         android:textColor="#6B86F5"
         android:textSize="15sp"
@@ -49,12 +48,14 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:padding="20dp"
+        android:src="@drawable/ntc"
+        android:contentDescription="@string/content_desc_logo"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0"
-        android:src="@drawable/ntc" />
+        />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

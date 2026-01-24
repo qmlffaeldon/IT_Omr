@@ -1,6 +1,21 @@
 <resources>
-    <string name="app_name">IT_scann</string>
-    <!-- Strings used for fragments for navigation -->
+    <string name="app_name">IT Scan</string>
+
+    <!--  Content Descriptions  -->
+
+    <!--  Buttons  -->
+    <string name="content_desc_gallery">Upload Button</string>
+    <string name="content_desc_capture">Capture Button</string>
+    <string name="content_desc_flash">Flash Toggle Button</string>
+
+    <!--  Image Views  -->
+    <string name="content_desc_logo">NTC Logo</string>
+
+    <!--  Texts / Strings | TextButtons  -->
+    <string name="button_text_scan">Camera Scan Button</string>
+    <string name="button_text_key">Answer Key Button</string>
+
+    <!--  Strings used for fragments for navigation  -->
     <string name="first_fragment_label">First Fragment</string>
     <string name="second_fragment_label">Second Fragment</string>
     <string name="next">Next</string>
