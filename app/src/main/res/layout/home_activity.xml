@@ -9,18 +9,14 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:contentDescription="@string/content_desc_logo"
-        android:padding="25dp"
         android:src="@drawable/ic_ntc_logo_foreground"
-        android:scaleX="1.15"
-        android:scaleY="1.15"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/textView"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.5"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintTop_toTopOf="@id/guideline_top"
         app:layout_constraintWidth_percent="0.69"
-        app:layout_constraintDimensionRatio="1:1"
-        app:layout_constraintVertical_bias="0.1"/>
+        app:layout_constraintHeight_min="250dp"/>
 
     <com.google.android.material.textview.MaterialTextView
         android:id="@+id/textView"
@@ -32,11 +28,12 @@
         android:textColor="@color/black"
         android:gravity="center"
         android:fontFamily="@font/quantico"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/btn_scan"
         app:layout_constraintTop_toBottomOf="@id/logo_ntc"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintVertical_bias="0.0"/>
+        app:layout_constraintVertical_bias="0.0"
+        android:layout_marginBottom="10dp"/>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_scan"
@@ -49,19 +46,21 @@
         android:textAllCaps="false"
         android:textColor="@android:color/white"
         android:textSize="20sp"
+        android:elevation="8dp"
         app:cornerRadius="15dp"
         app:icon="@drawable/ic_scan"
         app:iconSize="30dp"
         app:iconGravity="textStart"
-        app:layout_constraintDimensionRatio="8:3"
+        app:layout_constraintWidth_max="300dp"
         app:layout_constraintWidth_percent="0.69"
-        app:layout_constraintBottom_toTopOf="@+id/btn_results"
+        app:layout_constraintHeight_max="150dp"
+        app:layout_constraintBottom_toTopOf="@+id/btn_answers"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/textView" />
 
     <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_results"
+        android:id="@+id/btn_answers"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:backgroundTint="#DC273B"
@@ -69,23 +68,50 @@
         android:text="@string/button_text_key"
         android:textColor="@color/white"
         android:textSize="20sp"
+        android:elevation="8dp"
         app:cornerRadius="15dp"
         app:icon="@drawable/ic_key"
         app:iconSize="30dp"
         app:iconGravity="textStart"
-        app:layout_constraintDimensionRatio="8:3"
+        app:layout_constraintWidth_max="300dp"
+        app:layout_constraintWidth_percent="0.69"
+        app:layout_constraintBottom_toTopOf="@id/btn_results"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/btn_scan" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_results"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:backgroundTint="#DECF4A"
+        android:fontFamily="@font/quantico"
+        android:text="@string/button_text_results"
+        android:textColor="@color/white"
+        android:textSize="20sp"
+        android:elevation="8dp"
+        app:cornerRadius="15dp"
+        app:icon="@drawable/ic_search"
+        app:iconSize="30dp"
+        app:iconGravity="textStart"
+        app:layout_constraintWidth_max="300dp"
         app:layout_constraintWidth_percent="0.69"
         app:layout_constraintBottom_toBottomOf="@id/guideline_bottom"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/btn_scan"
-        app:layout_constraintVertical_bias="1"/>
+        app:layout_constraintTop_toBottomOf="@+id/btn_answers" />
 
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guideline_bottom"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        app:layout_constraintGuide_percent="0.95" />
+        app:layout_constraintGuide_percent="0.9" />
 
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideline_top"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.1" />
 </androidx.constraintlayout.widget.ConstraintLayout>

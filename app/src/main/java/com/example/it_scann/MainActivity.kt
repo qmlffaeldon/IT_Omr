@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, CameraScan::class.java))
         }
 
-        findViewById<Button>(R.id.btn_results).setOnClickListener {
+        findViewById<Button>(R.id.btn_answers).setOnClickListener {
             Log.d("MainActivity", "Scan button clicked")
             startActivity(Intent(this, Answer_key::class.java))
         }

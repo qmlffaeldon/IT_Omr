@@ -7,22 +7,46 @@ import android.graphics.Color
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.view.View
 import android.widget.ImageButton
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.cardview.widget.CardView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ObjectAnimator
 import androidx.lifecycle.lifecycleScope
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
 import com.example.it_scann.analyzeImageFile
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
+import com.google.android.material.button.MaterialButton
 
 class CameraScan : AppCompatActivity() {
 
+    private lateinit var topCard: CardView
+    private lateinit var bottomCard: CardView
+
+    // Fade out animation via alpha manipulation (3 secs duration)
+    private fun fadeOutViews(vararg views: View) {
+        views.forEach { view ->
+            ObjectAnimator.ofFloat(view, "alpha", 1f, 0f).apply {
+                duration = 1000
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        view.visibility = View.GONE
+                        view.alpha = 1f
+                    }
+                })
+                start()
+            }
+        }
+    }
     private val galleryLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
     ) { savedUri: android.net.Uri? ->
@@ -39,10 +63,15 @@ class CameraScan : AppCompatActivity() {
             Thread {
                 try {
                     analyzeImageFile(this@CameraScan, savedUri) { detected ->
-                        onAnswersDetected(detected)
+                        runOnUiThread {
+                            onAnswersDetected(detected)
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e("OMR", "Error analyzing gallery image", e)
+                    runOnUiThread {
+                        topCard.visibility = View.GONE
+                    }
                 }
             }.start()
         }
@@ -60,6 +89,16 @@ class CameraScan : AppCompatActivity() {
                 Log.d("OMR", "Test $testNumber scored $score / 25")
             }
         }
+
+        topCard.alpha = 1f
+        bottomCard.alpha = 1f
+        topCard.visibility = View.VISIBLE
+        bottomCard.visibility = View.VISIBLE
+
+        topCard.postDelayed({
+            fadeOutViews(topCard, bottomCard)
+        }, 3000)
+
     }
     private var imageCapture: ImageCapture? = null  // add this
     private var camera: Camera? = null
@@ -96,6 +135,9 @@ class CameraScan : AppCompatActivity() {
             galleryLauncher.launch("image/*")
         }
 
+        topCard = findViewById<CardView>(R.id.cardTopPopup)
+        bottomCard = findViewById<CardView>(R.id.cardBottomPopup)
+
         val flashBtn = findViewById<ImageButton>(R.id.btn_flash)
 
         flashBtn.setOnClickListener {
@@ -113,6 +155,12 @@ class CameraScan : AppCompatActivity() {
                     flashBtn.background.setTint(Color.WHITE)
                 }
             }
+        }
+
+        val btnBack = findViewById<MaterialButton>(R.id.btn_back)
+
+        btnBack.setOnClickListener {
+            finish()
         }
     }
 
