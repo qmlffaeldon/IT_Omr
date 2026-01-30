@@ -1,12 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.app.SplashScreen" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/white</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_ntc_logo_inset</item>
-        <item name="postSplashScreenTheme">@style/Theme.IT_Scan</item>
-    </style>
-
     <style name="Theme.IT_Scan" parent="Theme.Material3.Light.NoActionBar">
 
         <item name="colorPrimary">#6200EE</item>
@@ -14,11 +8,17 @@
 
         <item name="colorSecondary">#03DAC6</item>
         <item name="colorOnSecondary">#000000</item>
-<!--
 
         <item name="android:statusBarColor">@color/white</item>
         <item name="android:windowLightStatusBar">true</item>
--->
+
+        <item name="android:forceDarkAllowed">true</item>
     </style>
 
+    <style name="Theme.app.SplashScreen" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/white</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_ntc_logo_inset</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="postSplashScreenTheme">@style/Theme.IT_Scan</item>
+    </style>
 </resources>

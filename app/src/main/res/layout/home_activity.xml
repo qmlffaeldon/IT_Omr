@@ -4,58 +4,114 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-
-    <Button
-        android:id="@+id/btn_scan"
-        android:layout_width="260dp"
+    <ImageView
+        android:id="@+id/logo_ntc"
+        android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginTop="372dp"
-        android:layout_marginBottom="33dp"
-        android:background="@drawable/ripple_effect_default"
-        android:fontFamily="sans-serif-medium"
+        android:contentDescription="@string/content_desc_logo"
+        android:src="@drawable/ic_ntc_logo_foreground"
+        app:layout_constraintBottom_toTopOf="@id/textView"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.5"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@id/guideline_top"
+        app:layout_constraintWidth_percent="0.69"
+        app:layout_constraintHeight_min="250dp"/>
+
+    <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/textView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/text_roec"
+        android:textSize="75sp"
+        android:textStyle="bold"
+        android:textColor="@color/black"
+        android:gravity="center"
+        android:fontFamily="@font/quantico"
+        app:layout_constraintBottom_toTopOf="@id/btn_scan"
+        app:layout_constraintTop_toBottomOf="@id/logo_ntc"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent"
+        app:layout_constraintVertical_bias="0.0"
+        android:layout_marginBottom="10dp"/>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_scan"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:backgroundTint="#515CB3"
+        android:fontFamily="@font/quantico"
         android:gravity="center"
         android:text="@string/button_text_scan"
         android:textAllCaps="false"
         android:textColor="@android:color/white"
-        android:textSize="17sp"
-        android:textStyle="bold"
-        app:layout_constraintBottom_toTopOf="@+id/btn_results"
+        android:textSize="20sp"
+        android:elevation="8dp"
+        app:cornerRadius="15dp"
+        app:icon="@drawable/ic_scan"
+        app:iconSize="30dp"
+        app:iconGravity="textStart"
+        app:layout_constraintWidth_max="300dp"
+        app:layout_constraintWidth_percent="0.69"
+        app:layout_constraintHeight_max="150dp"
+        app:layout_constraintBottom_toTopOf="@+id/btn_answers"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.496"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toBottomOf="@id/textView" />
 
-    <Button
-        android:id="@+id/btn_results"
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_answers"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginStart="75dp"
-        android:layout_marginEnd="75dp"
-        android:layout_marginBottom="386dp"
-        android:background="@drawable/btn_secondary"
-        android:fontFamily="sans-serif-medium"
+        android:backgroundTint="#DC273B"
+        android:fontFamily="@font/quantico"
         android:text="@string/button_text_key"
-        android:textAllCaps="false"
-        android:textColor="#6B86F5"
-        android:textSize="15sp"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:textColor="@color/white"
+        android:textSize="20sp"
+        android:elevation="8dp"
+        app:cornerRadius="15dp"
+        app:icon="@drawable/ic_key"
+        app:iconSize="30dp"
+        app:iconGravity="textStart"
+        app:layout_constraintWidth_max="300dp"
+        app:layout_constraintWidth_percent="0.69"
+        app:layout_constraintBottom_toTopOf="@id/btn_results"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/btn_scan" />
 
-    <ImageView
-        android:id="@+id/ntc_bg"
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_results"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:padding="20dp"
-        android:src="@drawable/ntc"
-        android:contentDescription="@string/content_desc_logo"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:backgroundTint="#DECF4A"
+        android:fontFamily="@font/quantico"
+        android:text="@string/button_text_results"
+        android:textColor="@color/white"
+        android:textSize="20sp"
+        android:elevation="8dp"
+        app:cornerRadius="15dp"
+        app:icon="@drawable/ic_search"
+        app:iconSize="30dp"
+        app:iconGravity="textStart"
+        app:layout_constraintWidth_max="300dp"
+        app:layout_constraintWidth_percent="0.69"
+        app:layout_constraintBottom_toBottomOf="@id/guideline_bottom"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.0"
-        />
+        app:layout_constraintTop_toBottomOf="@+id/btn_answers" />
 
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideline_bottom"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.9" />
+
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideline_top"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_percent="0.1" />
 </androidx.constraintlayout.widget.ConstraintLayout>

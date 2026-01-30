@@ -1,19 +1,32 @@
 <resources>
     <string name="app_name">IT Scan</string>
 
-    <!--  Content Descriptions  -->
+    <!--  ***** CONTENT DESCRIPTIONS *****  -->
 
     <!--  Buttons  -->
-    <string name="content_desc_gallery">Upload Button</string>
-    <string name="content_desc_capture">Capture Button</string>
-    <string name="content_desc_flash">Flash Toggle Button</string>
+    <string name="content_desc_gallery">Upload</string>
+    <string name="content_desc_capture">Capture</string>
+    <string name="content_desc_flash">Flash Toggle</string>
+    <string name="content_desc_back">Back</string>
 
     <!--  Image Views  -->
     <string name="content_desc_logo">NTC Logo</string>
 
-    <!--  Texts / Strings | TextButtons  -->
-    <string name="button_text_scan">Camera Scan Button</string>
-    <string name="button_text_key">Answer Key Button</string>
+    <!--  ***** TEXT / STRINGS *****  -->
+
+    <!--  Card Views  -->
+    <string name="card_popup_scan_status">Scan Complete</string>
+
+    <!--  Text Button Views  -->
+    <string name="button_text_scan">Scan Answer Sheets</string>
+    <string name="button_text_key">Answer Keys</string>
+    <string name="button_text_results">View Scanned Results</string>
+    <string name="card_popup_button_text_scan_results">Tap here to see results</string>
+
+    <!--  Text Views -->
+    <string name="text_roec">ROEC</string>
+
+
 
     <!--  Strings used for fragments for navigation  -->
     <string name="first_fragment_label">First Fragment</string>
@@ -57,7 +70,6 @@
         libero vel nunc consequat, quis tincidunt nisl eleifend. Cras bibendum enim a justo luctus
         vestibulum. Fusce dictum libero quis erat maximus, vitae volutpat diam dignissim.
     </string>
-    <string name="galleryIcon">galleryIcon</string>
 
     <string-array name="element_tests">
         <item>Element 1</item>
