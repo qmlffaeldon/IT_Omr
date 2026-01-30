@@ -14,8 +14,9 @@ import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
+import org.opencv.objdetect.QRCodeDetector
 
-private const val DEBUG_DRAW = true
+const val DEBUG_DRAW = true
 
 /* ====================== CAMERA ANALYZER ====================== */
 data class DetectedAnswer(
@@ -23,9 +24,21 @@ data class DetectedAnswer(
     val questionNumber: Int,
     val detected: Int
 )
+enum class TestType {
+    A, B, C, D
+}
+data class Column(
+    val name: String,
+    val startx: Double,
+    val width: Double,
+    val starty: Double,
+    val height: Double
+)
+
 
 class OpenCVAnalyzer(
-    private val context: Context
+    private val context: Context,
+    private val onResult: (OMRResult) -> Unit  // Add callback
 ) : ImageAnalysis.Analyzer {
 
     override fun analyze(image: ImageProxy) {
@@ -34,19 +47,21 @@ class OpenCVAnalyzer(
         raw.release()
 
         try {
+            val qrCode = detectQRCodeWithDetailedDebug(context, src, "00_qr_detection")
             val warped = detectAndWarpSheet(src) ?: return
+
             if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
             val thresh = thresholdForOMR(context, warped)
 
             val detectedAnswers = mutableListOf<DetectedAnswer>()
-            val testNumber = 0 // or get from intent / UI
+            val testNumber = 0
             processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
-
-
 
             detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
+            // Call the callback with results
+            onResult(OMRResult(qrCode, detectedAnswers))
 
             thresh.release()
             warped.release()
@@ -66,7 +81,7 @@ class OpenCVAnalyzer(
 fun analyzeImageFile(
     context: Context,
     imageUri: Uri,
-    onDetected: (List<DetectedAnswer>) -> Unit
+    onDetected: (OMRResult) -> Unit
 ) {
     context.contentResolver.openInputStream(imageUri)?.use { input ->
         val bitmap = BitmapFactory.decodeStream(input) ?: return
@@ -77,6 +92,8 @@ fun analyzeImageFile(
         val rotated = rotateBitmapIfNeeded(context, imageUri, raw)
         raw.release()
 
+        val qrCode = detectQRCodeWithDetailedDebug(context, rotated, "00_qr_detection")
+
         val warped = detectAndWarpSheet(rotated) ?: return
         if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
@@ -86,14 +103,12 @@ fun analyzeImageFile(
         val testNumber = 0// or get from intent / UI
         processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
 
-
-
-        detectedAnswers.forEach { Log.d("OMR", it.toString()) }
+       // detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
         thresh.release()
         warped.release()
         rotated.release()
-        onDetected(detectedAnswers)
+        onDetected(OMRResult(qrCode, detectedAnswers))
 
     }
 }
@@ -164,11 +179,16 @@ fun orderPoints(pts: Array<Point>): Array<Point> {
 
 fun thresholdForOMR(context: Context, src: Mat): Mat {
     val gray = Mat()
+    val norm = Mat()
     val blur = Mat()
     val thresh = Mat()
 
     Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-    Imgproc.GaussianBlur(gray, blur, Size(3.0, 3.0), 0.0)
+
+    val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
+    clahe.apply(gray, norm)
+
+    Imgproc.GaussianBlur(norm, blur, Size(3.0, 3.0), 0.0)
 
     Imgproc.adaptiveThreshold(
         blur,
@@ -176,13 +196,14 @@ fun thresholdForOMR(context: Context, src: Mat): Mat {
         255.0,
         Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
         Imgproc.THRESH_BINARY_INV,
-        75,
+        69,
         15.0
     )
 
     if (DEBUG_DRAW) saveDebugMat(context, thresh, "02_thresh")
 
     gray.release()
+    norm.release()
     blur.release()
     return thresh
 }
@@ -200,13 +221,11 @@ fun processAnswerSheetGrid(
     val choices = 4
     val labels = listOf("A", "B", "C", "D")
 
-    data class Column(val name: String, val startx: Double, val width: Double, val starty: Double, val height: Double)
-
     val columns = listOf(
         Column("Elem 2", 0.05, 0.20,0.08,0.90),
         Column("Elem 3", 0.30, 0.20,0.08,0.90),
-        Column("Elem 4a", 0.54, 0.20,0.08,0.90),
-        Column("Elem 4b", 0.78, 0.20,0.08,0.90)
+        Column("Elem 4a", 0.536, 0.20,0.08,0.90),
+        Column("Elem 4b", 0.776, 0.20,0.08,0.90)
     )
 
      // Will be used for having multiple Test types i.e (A,B,C,D) with differing elements
@@ -304,12 +323,12 @@ fun processAnswerSheetGrid(
             val second = ranked[1]
 
             val avgFill = fill.average()
-            val minFill = avgFill * 1.2
-            val dominanceRatio = 1.4
+            val minFill = avgFill * 1.0
+            val dominanceRatio = 0.70
 
             val detectedValue = when {
                 best.second < minFill -> -1 // INVALID
-                second.second > best.second * 0.75 -> -2 // MULTIPLE
+                second.second > best.second * dominanceRatio -> -2 // MULTIPLE
                 else -> best.first
             }
             answers.add(
@@ -326,6 +345,7 @@ fun processAnswerSheetGrid(
             if (detectedValue in 0..3) {
                 val cx = xStart + detectedValue * cWidth + cWidth / 2
                 val cy = yStart + q * qHeight + qHeight / 2
+
 
                 Imgproc.circle(
                     debugMat,
@@ -406,26 +426,5 @@ fun saveDebugMat(context: Context, mat: Mat, name: String) {
     }
 }
 
-fun rotateBitmapIfNeeded(context: Context, uri: Uri, mat: Mat): Mat {
-    val input = context.contentResolver.openInputStream(uri) ?: return mat
-    val exif = androidx.exifinterface.media.ExifInterface(input)
-    input.close()
 
-    val orientation = exif.getAttributeInt(
-        androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
-        androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
-    )
-
-    val rotated = Mat()
-    when (orientation) {
-        androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 ->
-            Core.rotate(mat, rotated, Core.ROTATE_90_CLOCKWISE)
-        androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 ->
-            Core.rotate(mat, rotated, Core.ROTATE_180)
-        androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 ->
-            Core.rotate(mat, rotated, Core.ROTATE_90_COUNTERCLOCKWISE)
-        else -> mat.copyTo(rotated)
-    }
-    return rotated
-}
 
