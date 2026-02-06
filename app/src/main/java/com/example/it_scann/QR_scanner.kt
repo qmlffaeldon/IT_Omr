@@ -10,7 +10,25 @@ data class OMRResult(
     val qrCode: String?,
     val answers: List<DetectedAnswer>
 )
+data class QRCodeData(
+    val testType: String?,      // "A", "B", "C", "D"
+    val setNumber: Int?,
+    val seatNumber: Int?,
+    val rawData: String
+)
+data class DetectedAnswer(
+    val testNumber: Int,
+    val questionNumber: Int,
+    val detected: Int
+)
 
+data class Column(
+    val name: String,
+    val startx: Double,
+    val width: Double,
+    val starty: Double,
+    val height: Double
+)
 fun detectQRCodeWithDetailedDebug(
     context: Context,
     src: Mat,
@@ -39,19 +57,6 @@ fun detectQRCodeWithDetailedDebug(
         // Draw results
         if (data.isNotEmpty()) {
             Log.d("OMR", "QR Code detected: $data (source: $source)")
-
-            val parts = data.split(";").associate {
-                val (k, v) = it.split("=")
-                k to v
-            }
-
-            val testType = parts["TYPE"]
-            val setNumber = parts["SET"]?.toInt()
-            val seatNumber = parts["SEAT"]?.toInt()
-            Log.d("parse", "QR parsed (source: $testType)")
-            Log.d("parse", "QR parsed (source: $setNumber)")
-            Log.d("parse", "QR parsed (source: $seatNumber)")
-
 
             // Add success banner
             Imgproc.rectangle(
@@ -122,6 +127,103 @@ fun detectQRCodeWithDetailedDebug(
     } finally {
         points.release()
         straightQRcode.release()
+    }
+}
+
+// ====================== EXAM TYPE CONFIGURATIONS ======================
+
+object ExamConfigurations {
+
+    private val RadioAmateurD = listOf(
+        Column("Elem 1", 0.05, 0.20, 0.08, 0.90)
+    )
+
+    private val RadioAmateurC = listOf(
+        Column("Elem 2", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 3", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 4", 0.54, 0.20, 0.08, 0.90)
+    )
+
+    private val RadioAmateurB = listOf(
+        Column("Elem 5", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 6", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 7", 0.54, 0.20, 0.08, 0.90)
+    )
+
+    private val RadioAmateurA = listOf(
+        Column("Elem 8", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 9", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 10", 0.54, 0.20, 0.08, 0.90)
+    )
+
+    // Default configuration (your current hardcoded one)
+    private val DefaultConfig = listOf(
+        Column("Elem 2", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 3", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 4a", 0.536, 0.20, 0.08, 0.90),
+        Column("Elem 4b", 0.776, 0.20, 0.08, 0.90)
+    )
+
+    /*
+     * Get column configuration based on test type from QR code
+     */
+    fun getColumnsForTestType(testType: String?): List<Column> {
+        return when (testType?.uppercase()) {
+            "A" -> RadioAmateurA
+            "B" -> RadioAmateurB
+            "C" -> RadioAmateurC
+            "D" -> RadioAmateurD
+            else -> {
+                Log.w("OMR", "Unknown test type '$testType', using default configuration")
+                DefaultConfig
+            }
+        }
+    }
+
+    /*
+     * Get number of questions based on test type
+     * Adjust these values based on your actual exam requirements
+     */
+    fun getQuestionsForTestType(testType: String?): Int {
+        return when (testType?.uppercase()) {
+            "A" -> 25
+            "B" -> 25
+            "C" -> 25
+            "D" -> 25
+            else -> 25
+        }
+    }
+}
+
+// ====================== QR CODE PARSING ======================
+
+/*
+ * Parse QR code data into structured format
+ */
+fun parseQRCodeData(rawData: String?): QRCodeData? {
+    if (rawData.isNullOrEmpty()) return null
+
+    try {
+        val parts = rawData.split(";").associate {
+            val (k, v) = it.split("=", limit = 2)
+            k.trim() to v.trim()
+        }
+
+        val testType = parts["TYPE"]
+        val setNumber = parts["SET"]?.toInt()
+        val seatNumber = parts["SEAT"]?.toInt()
+
+        Log.d("OMR_QR", "Parsed QR - Type: $testType, Set: $setNumber, Seat: $seatNumber")
+
+        return QRCodeData(
+            testType = testType,
+            setNumber = setNumber,
+            seatNumber = seatNumber,
+            rawData = rawData
+        )
+    } catch (e: Exception) {
+        Log.e("OMR_QR", "Failed to parse QR code data: $rawData", e)
+        return null
     }
 }
 
