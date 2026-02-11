@@ -24,7 +24,6 @@ import androidx.lifecycle.lifecycleScope
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
 import com.example.it_scann.analyzeImageFile
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textview.MaterialTextView
@@ -73,8 +72,8 @@ class CameraScan : AppCompatActivity() {
             galleryLauncher.launch("image/*")
         }
 
-        topCard = findViewById<CardView>(R.id.cardTopPopup)
-        bottomCard = findViewById<CardView>(R.id.cardBottomPopup)
+        topCard = findViewById(R.id.cardTopPopup)
+        bottomCard = findViewById(R.id.cardBottomPopup)
 
         val flashBtn = findViewById<ImageButton>(R.id.btn_flash)
 
