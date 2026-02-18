@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
+import android.graphics.Point
 import androidx.lifecycle.lifecycleScope
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
@@ -27,6 +28,11 @@ import com.example.it_scann.analyzeImageFile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.google.android.material.button.MaterialButton
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.AspectRatio
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 
 class CameraScan : AppCompatActivity() {
@@ -123,6 +129,34 @@ class CameraScan : AppCompatActivity() {
 
     }
 
+    // Add this inside OpenCVAnalyzer.kt or as a standalone function
+    fun isPaperTooSkewed(points: Array<Point>): Boolean {
+        // Points are typically ordered: TL, TR, BR, BL
+
+        // Calculate lengths of all 4 sides
+        fun dist(p1: Point, p2: Point): Double {
+            return sqrt(
+                (p1.x - p2.x).toDouble().pow(2.0) + (p1.y - p2.y).toDouble()
+                    .pow(2.0)
+            )
+        }
+
+        val top = dist(points[0], points[1])
+        val right = dist(points[1], points[2])
+        val bottom = dist(points[2], points[3])
+        val left = dist(points[3], points[0])
+
+        // Check 1: Perspective Ratio (Is the top much smaller than bottom?)
+        // A limit of 0.8 to 1.2 is usually a "safe" angle.
+        val horizontalRatio = top / bottom
+        val verticalRatio = left / right
+
+        if (horizontalRatio !in 0.7..1.3) return true // Tilted forward/back
+        if (verticalRatio !in 0.7..1.3) return true // Tilted sideways
+
+        return false
+    }
+
     private var imageCapture: ImageCapture? = null  // add this
     private var camera: Camera? = null
     private var isFlashOn = false
@@ -132,8 +166,7 @@ class CameraScan : AppCompatActivity() {
         setContentView(R.layout.activity_camera_scan)
 
         previewView = findViewById(R.id.previewView)
-        //previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
-
+        // previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
 
         // Init OpenCV
         OpenCVLoader.initDebug()
@@ -160,8 +193,8 @@ class CameraScan : AppCompatActivity() {
             galleryLauncher.launch("image/*")
         }
 
-        topCard = findViewById<CardView>(R.id.cardTopPopup)
-        bottomCard = findViewById<CardView>(R.id.cardBottomPopup)
+        topCard = findViewById(R.id.cardTopPopup)
+        bottomCard = findViewById(R.id.cardBottomPopup)
 
         val flashBtn = findViewById<ImageButton>(R.id.btn_flash)
 
@@ -195,30 +228,71 @@ class CameraScan : AppCompatActivity() {
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-           // val aspectRatio = AspectRatio.RATIO_4_3
-            //val rotation = previewView.display.rotation
+            // 1. Resolution / Aspect Ratio Strategy
+            val resolutionSelector = ResolutionSelector.Builder()
+                .setAspectRatioStrategy(
+                    AspectRatioStrategy(
+                        AspectRatio.RATIO_4_3,
+                        AspectRatioStrategy.FALLBACK_RULE_AUTO
+                    )
+                )
+                .build()
 
+            // 2. Preview Use Case
             val preview = Preview.Builder()
-              //  .setTargetRotation(rotation)
+                .setResolutionSelector(resolutionSelector)
                 .build()
                 .also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
+                    it.surfaceProvider = previewView.surfaceProvider
                 }
 
+            // 3. ImageCapture Use Case
             imageCapture = ImageCapture.Builder()
-                //.setTargetAspectRatio(aspectRatio)
-               // .setTargetRotation(rotation)
+                .setResolutionSelector(resolutionSelector)
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .build()
+
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setResolutionSelector(resolutionSelector) // Match Preview/Capture ratio
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST) // "Real-time" mode
+                .build()
+
+            imageAnalysis.setAnalyzer(cameraExecutor, OpenCVAnalyzer(
+                context = this,
+
+                // Standard OMR Result (Final scan when button is clicked or auto-scan)
+                onResult = {},
+
+                // NEW: Visual Feedback (Draws the Red/Green Box)
+                onScanFeedback = { feedback ->
+                    runOnUiThread {
+                        // Ensure you added the overlay view to your XML with this ID!
+                        val overlay = findViewById<DocumentOverlayView>(R.id.overlayView)
+                        overlay?.updateCorners(feedback.corners, feedback.isSkewed)
+                    }
+                },
+
+                isPreviewMode = true,
+
+                // Error handling (Optional)
+                onValidationError = { errorMsg ->
+                    Log.d("OMR", errorMsg)
+                }
+
+
+            ))
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             cameraProvider.unbindAll()
+
+            // 5. Bind everything to Lifecycle (Added imageAnalysis here)
             camera = cameraProvider.bindToLifecycle(
                 this,
                 cameraSelector,
                 preview,
-                imageCapture
+                imageCapture,
+                imageAnalysis // <--- Added this
             )
 
         }, ContextCompat.getMainExecutor(this))

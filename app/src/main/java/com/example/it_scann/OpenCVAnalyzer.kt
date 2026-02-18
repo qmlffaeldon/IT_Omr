@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.PointF
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
@@ -14,19 +15,19 @@ import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
-import org.opencv.objdetect.QRCodeDetector
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 const val DEBUG_DRAW = true
 
-/* ====================== CAMERA ANALYZER ====================== */
+/* ====================== DATA CLASSES ====================== */
+
 data class DetectedAnswer(
     val testNumber: Int,
     val questionNumber: Int,
     val detected: Int
 )
-enum class TestType {
-    A, B, C, D
-}
+
 data class Column(
     val name: String,
     val startx: Double,
@@ -35,10 +36,20 @@ data class Column(
     val height: Double
 )
 
+// Data class for Real-Time UI Feedback
+data class ScanFeedback(
+    val corners: List<PointF>?, // Normalized 0..1
+    val isSkewed: Boolean
+)
+
+/* ====================== ANALYZER CLASS ====================== */
 
 class OpenCVAnalyzer(
     private val context: Context,
-    private val onResult: (OMRResult) -> Unit  // Add callback
+    private val onResult: (OMRResult) -> Unit,
+    private val onScanFeedback: (ScanFeedback) -> Unit,
+    private val onValidationError: ((String) -> Unit)? = null,
+    private val isPreviewMode: Boolean = false
 ) : ImageAnalysis.Analyzer {
 
     override fun analyze(image: ImageProxy) {
@@ -47,15 +58,54 @@ class OpenCVAnalyzer(
         raw.release()
 
         try {
+            val sheetPoints = detectSheetContour(src)
+
+            if (sheetPoints != null) {
+                // Check if the paper is too angled
+                val isSkewed = isPaperTooSkewed(sheetPoints)
+
+                // Normalize points to 0.0-1.0 range for the UI
+                val normalizedPoints = sheetPoints.map {
+                    PointF((it.x / src.cols()).toFloat(), (it.y / src.rows()).toFloat())
+                }
+
+                // Send to UI immediately
+                onScanFeedback(ScanFeedback(normalizedPoints, isSkewed))
+            } else {
+                // No sheet found -> Clear the UI box
+                onScanFeedback(ScanFeedback(null, false))
+            }
+
+            if (isPreviewMode) {
+                src.release()
+                image.close()
+                return
+            }
+
             val qrCode = detectQRCodeWithDetailedDebug(context, src, "00_qr_detection")
-            val warped = detectAndWarpSheet(src) ?: return
+
+            // Warp using the points we just found (Efficient!)
+            val warped = if (sheetPoints != null) {
+                warpSheetFromPoints(src, sheetPoints)
+            } else {
+                null
+            }
+
+            if (warped == null) {
+                // onValidationError?.invoke("Ensure the sheet is fully visible.")
+                // Commented out to prevent spamming toasts while aligning
+                return
+            }
 
             if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
+            // OLD: Use the original simple threshold
             val thresh = thresholdForOMR(context, warped)
 
             val detectedAnswers = mutableListOf<DetectedAnswer>()
             val testNumber = 0
+
+            // OLD: Use the original grid processor
             processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
 
             detectedAnswers.forEach { Log.d("OMR", it.toString()) }
@@ -69,54 +119,15 @@ class OpenCVAnalyzer(
         } catch (e: Exception) {
             Log.e("OMR", "OMR analyze failed", e)
         } finally {
-            src.release()
+            if (!src.empty()) src.release()
             image.close()
         }
     }
 }
 
+/* ====================== CONTOUR & SKEW LOGIC ====================== */
 
-/* ====================== FILE ANALYSIS ====================== */
-
-fun analyzeImageFile(
-    context: Context,
-    imageUri: Uri,
-    onDetected: (OMRResult) -> Unit
-) {
-    context.contentResolver.openInputStream(imageUri)?.use { input ->
-        val bitmap = BitmapFactory.decodeStream(input) ?: return
-
-        val raw = Mat()
-        Utils.bitmapToMat(bitmap, raw)
-
-        val rotated = rotateBitmapIfNeeded(context, imageUri, raw)
-        raw.release()
-
-        val qrCode = detectQRCodeWithDetailedDebug(context, rotated, "00_qr_detection")
-
-        val warped = detectAndWarpSheet(rotated) ?: return
-        if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
-
-        val thresh = thresholdForOMR(context, warped)
-
-        val detectedAnswers = mutableListOf<DetectedAnswer>()
-        val testNumber = 0// or get from intent / UI
-        processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
-
-       // detectedAnswers.forEach { Log.d("OMR", it.toString()) }
-
-        thresh.release()
-        warped.release()
-        rotated.release()
-        onDetected(OMRResult(qrCode, detectedAnswers))
-
-    }
-}
-
-
-/* ====================== SHEET DETECTION ====================== */
-
-fun detectAndWarpSheet(src: Mat): Mat? {
+fun detectSheetContour(src: Mat): Array<Point>? {
     val gray = Mat()
     val blur = Mat()
     val edges = Mat()
@@ -126,14 +137,7 @@ fun detectAndWarpSheet(src: Mat): Mat? {
     Imgproc.Canny(blur, edges, 75.0, 200.0)
 
     val contours = mutableListOf<MatOfPoint>()
-    Imgproc.findContours(
-        edges,
-        contours,
-        Mat(),
-        Imgproc.RETR_EXTERNAL,
-        Imgproc.CHAIN_APPROX_SIMPLE
-    )
-
+    Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
     contours.sortByDescending { Imgproc.contourArea(it) }
 
     val sheet = contours.firstNotNullOfOrNull { c ->
@@ -141,9 +145,18 @@ fun detectAndWarpSheet(src: Mat): Mat? {
         val approx = MatOfPoint2f()
         Imgproc.approxPolyDP(MatOfPoint2f(*c.toArray()), approx, 0.02 * peri, true)
         if (approx.total() == 4L) approx else null
-    } ?: return null
+    }
 
-    val ordered = orderPoints(sheet.toArray())
+    val result = if (sheet != null) orderPoints(sheet.toArray()) else null
+
+    gray.release()
+    blur.release()
+    edges.release()
+
+    return result
+}
+
+fun warpSheetFromPoints(src: Mat, orderedPoints: Array<Point>): Mat {
     val dst = MatOfPoint2f(
         Point(0.0, 0.0),
         Point(1200.0, 0.0),
@@ -151,31 +164,52 @@ fun detectAndWarpSheet(src: Mat): Mat? {
         Point(0.0, 1600.0)
     )
 
-    val matrix = Imgproc.getPerspectiveTransform(MatOfPoint2f(*ordered), dst)
+    val matrix = Imgproc.getPerspectiveTransform(MatOfPoint2f(*orderedPoints), dst)
     val warped = Mat()
     Imgproc.warpPerspective(src, warped, matrix, Size(1200.0, 1600.0))
-
-    gray.release()
-    blur.release()
-    edges.release()
-
     return warped
 }
 
-fun orderPoints(pts: Array<Point>): Array<Point> {
-    val rect = Array(4) { Point() }
-    val sum = pts.map { it.x + it.y }
-    val diff = pts.map { it.y - it.x }
+/**
+ * Checks if the detected quadrilateral is too skewed (perspective distortion).
+ * Returns TRUE if the paper is not flat enough for accurate scanning.
+ */
+fun isPaperTooSkewed(points: Array<Point>): Boolean {
+    // Points are ordered: TL, TR, BR, BL
 
-    rect[0] = pts[sum.indexOf(sum.min())]
-    rect[2] = pts[sum.indexOf(sum.max())]
-    rect[1] = pts[diff.indexOf(diff.min())]
-    rect[3] = pts[diff.indexOf(diff.max())]
+    fun dist(p1: Point, p2: Point): Double {
+        return sqrt((p1.x - p2.x).pow(2.0) + (p1.y - p2.y).pow(2.0))
+    }
 
-    return rect
+    val top = dist(points[0], points[1])
+    val right = dist(points[1], points[2])
+    val bottom = dist(points[2], points[3])
+    val left = dist(points[3], points[0])
+
+    // Safety check for divide by zero
+    if (bottom == 0.0 || right == 0.0) return true
+
+    // Compare opposite sides. In a flat rectangle, ratio is ~1.0.
+    val horizontalRatio = top / bottom
+    val verticalRatio = left / right
+
+    // Thresholds: Allow roughly 30% distortion.
+    val minRatio = 0.70
+    val maxRatio = 1.30
+
+    if (horizontalRatio < minRatio || horizontalRatio > maxRatio) return true
+    if (verticalRatio < minRatio || verticalRatio > maxRatio) return true
+
+    return false
 }
 
-/* ====================== THRESHOLD ====================== */
+/* ====================== OLD HELPERS (Restored) ====================== */
+
+fun detectAndWarpSheet(src: Mat): Mat? {
+    // Convenience wrapper for File Analysis
+    val points = detectSheetContour(src) ?: return null
+    return warpSheetFromPoints(src, points)
+}
 
 fun thresholdForOMR(context: Context, src: Mat): Mat {
     val gray = Mat()
@@ -207,7 +241,6 @@ fun thresholdForOMR(context: Context, src: Mat): Mat {
     blur.release()
     return thresh
 }
-/* ====================== OMR CORE ====================== */
 
 fun processAnswerSheetGrid(
     context: Context,
@@ -215,77 +248,43 @@ fun processAnswerSheetGrid(
     debugMat: Mat,
     testNumber: Int,
     answers: MutableList<DetectedAnswer>
-)
- {
+) {
     val questions = 25
     val choices = 4
-    val labels = listOf("A", "B", "C", "D")
 
     val columns = listOf(
-        Column("Elem 2", 0.05, 0.20,0.08,0.90),
-        Column("Elem 3", 0.30, 0.20,0.08,0.90),
-        Column("Elem 4a", 0.536, 0.20,0.08,0.90),
-        Column("Elem 4b", 0.776, 0.20,0.08,0.90)
+        Column("Elem 2", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 3", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 4a", 0.536, 0.20, 0.08, 0.90),
+        Column("Elem 4b", 0.776, 0.20, 0.08, 0.90)
     )
 
-     // Will be used for having multiple Test types i.e (A,B,C,D) with differing elements
-     /* val RadioAmateurD = listOf(
-         Column("Elem 1", 0.05, 0.20,0.08,0.90)
-     )
-
-     val RadioAmateurC = listOf(
-         Column("Elem 2", 0.05, 0.20,0.08,0.90),
-         Column("Elem 3", 0.30, 0.20,0.08,0.90),
-         Column("Elem 4", 0.54, 0.20,0.08,0.90)
-     )
-
-     val RadioAmateurB = listOf(
-         Column("Elem 5", 0.05, 0.20,0.08,0.90),
-         Column("Elem 6", 0.30, 0.20,0.08,0.90),
-         Column("Elem 7", 0.54, 0.20,0.08,0.90)
-     )
-     val RadioAmateurA = listOf(
-         Column("Elem 8", 0.05, 0.20,0.08,0.90),
-         Column("Elem 9", 0.30, 0.20,0.08,0.90),
-         Column("Elem 10", 0.54, 0.20,0.08,0.90)
-     )
-    */
-
-     for ((testNumber, col) in columns.withIndex()) {
-
+    for ((tNum, col) in columns.withIndex()) {
         val imgH = thresh.rows()
         val imgW = thresh.cols()
 
         val xStart = (imgW * col.startx).toInt().coerceIn(0, imgW - 1)
         val xEnd = (xStart + imgW * col.width).toInt().coerceIn(xStart + 1, imgW)
-
         val yStart = (imgH * col.starty).toInt().coerceIn(0, imgH - 1)
         val yEnd = (yStart + imgH * col.height).toInt().coerceIn(yStart + 1, imgH)
 
         val colMat = thresh.submat(yStart, yEnd, xStart, xEnd)
-
-
         val qHeight = colMat.rows() / questions
         val cWidth = colMat.cols() / choices
 
         for (q in 0 until questions) {
-
             val fill = DoubleArray(choices)
 
             for (c in 0 until choices) {
                 val padX = (cWidth * 0.15).toInt()
                 val padY = (qHeight * 0.10).toInt()
-
                 val centerY = ((q + 0.5) * qHeight).toInt()
                 val y1 = (centerY - qHeight * 0.35).toInt()
                 val y2 = (centerY + qHeight * 0.35).toInt()
-
-
                 val x1 = c * cWidth
                 val x2 = minOf((c + 1) * cWidth, colMat.cols())
 
                 if (y2 <= y1 || x2 <= x1) continue
-
                 val rx1 = (x1 + padX).coerceAtLeast(0)
                 val ry1 = (y1 + padY).coerceAtLeast(0)
                 val rx2 = (x2 - padX).coerceAtMost(colMat.cols())
@@ -294,9 +293,6 @@ fun processAnswerSheetGrid(
                 if (rx2 <= rx1 || ry2 <= ry1) continue
 
                 val roi = colMat.submat(ry1, ry2, rx1, rx2)
-
-
-
                 val filledPixels = Core.countNonZero(roi)
                 val areaRatio = filledPixels.toDouble() / roi.total()
 
@@ -308,123 +304,107 @@ fun processAnswerSheetGrid(
                     Imgproc.RETR_EXTERNAL,
                     Imgproc.CHAIN_APPROX_SIMPLE
                 )
-
-                val maxContourArea = contours.maxOfOrNull {
-                    Imgproc.contourArea(it)
-                } ?: 0.0
+                val maxContourArea = contours.maxOfOrNull { Imgproc.contourArea(it) } ?: 0.0
 
                 fill[c] = areaRatio + (maxContourArea / roi.total())
-
                 roi.release()
             }
 
             val ranked = fill.mapIndexed { i, v -> i to v }.sortedByDescending { it.second }
             val best = ranked[0]
             val second = ranked[1]
-
             val avgFill = fill.average()
             val minFill = avgFill * 1.0
             val dominanceRatio = 0.70
 
             val detectedValue = when {
-                best.second < minFill -> -1 // INVALID
-                second.second > best.second * dominanceRatio -> -2 // MULTIPLE
+                best.second < minFill -> -1
+                second.second > best.second * dominanceRatio -> -2
                 else -> best.first
             }
+
             answers.add(
                 DetectedAnswer(
-                    testNumber = testNumber,
+                    testNumber = tNum,
                     questionNumber = q + 1,
                     detected = detectedValue
                 )
             )
-            Log.d("OMR", "${col.name} Q${q + 1} → $detectedValue")
-
-
 
             if (detectedValue in 0..3) {
                 val cx = xStart + detectedValue * cWidth + cWidth / 2
                 val cy = yStart + q * qHeight + qHeight / 2
-
-
-                Imgproc.circle(
-                    debugMat,
-                    Point(cx.toDouble(), cy.toDouble()),
-                    10,
-                    Scalar(0.0, 0.0, 255.0),
-                    3
-                )
+                Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(0.0, 0.0, 255.0), 3)
             }
 
-
-            Imgproc.rectangle(
-                debugMat,
-                Point(xStart.toDouble(), yStart.toDouble()),
-                Point(xEnd.toDouble(), yEnd.toDouble()),
-                Scalar(255.0, 0.0, 0.0),
-                2
-            )
-
-            for (i in 0..questions) {
-                val y = yStart + i * qHeight
-                Imgproc.line(
-                    debugMat,
-                    Point(xStart.toDouble(), y.toDouble()),
-                    Point(xEnd.toDouble(), y.toDouble()),
-                    Scalar(0.0, 255.0, 0.0),
-                    1
-                )
-            }
-
-            for (i in 0..choices) {
-                val x = xStart + i * cWidth
-                Imgproc.line(
-                    debugMat,
-                    Point(x.toDouble(), yStart.toDouble()),
-                    Point(x.toDouble(), yEnd.toDouble()),
-                    Scalar(0.0, 255.0, 255.0),
-                    1
-                )
-            }
-
-
-
+            // Draw grid lines
+            Imgproc.rectangle(debugMat, Point(xStart.toDouble(), yStart.toDouble()), Point(xEnd.toDouble(), yEnd.toDouble()), Scalar(255.0, 0.0, 0.0), 2)
         }
-
         colMat.release()
     }
-
     if (DEBUG_DRAW) saveDebugMat(context, debugMat, "04_detected")
 }
 
+fun orderPoints(pts: Array<Point>): Array<Point> {
+    val rect = Array(4) { Point() }
+    val sum = pts.map { it.x + it.y }
+    val diff = pts.map { it.y - it.x }
+    rect[0] = pts[sum.indexOf(sum.min())]
+    rect[2] = pts[sum.indexOf(sum.max())]
+    rect[1] = pts[diff.indexOf(diff.min())]
+    rect[3] = pts[diff.indexOf(diff.max())]
+    return rect
+}
 
+/* ====================== FILE ANALYSIS ====================== */
 
-    /* ====================== UTIL ====================== */
+fun analyzeImageFile(
+    context: Context,
+    imageUri: Uri,
+    onDetected: (OMRResult) -> Unit
+) {
+    context.contentResolver.openInputStream(imageUri)?.use { input ->
+        val bitmap = BitmapFactory.decodeStream(input) ?: return
+        val raw = Mat()
+        Utils.bitmapToMat(bitmap, raw)
+        val rotated = rotateBitmapIfNeeded(context, imageUri, raw)
+        raw.release()
+
+        val qrCode = detectQRCodeWithDetailedDebug(context, rotated, "00_qr_detection")
+        val warped = detectAndWarpSheet(rotated)
+
+        if (warped == null) {
+            rotated.release()
+            return
+        }
+
+        if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
+
+        val thresh = thresholdForOMR(context, warped)
+        val detectedAnswers = mutableListOf<DetectedAnswer>()
+        val testNumber = 0
+
+        processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
+
+        thresh.release()
+        warped.release()
+        rotated.release()
+        onDetected(OMRResult(qrCode, detectedAnswers))
+    }
+}
 
 fun saveDebugMat(context: Context, mat: Mat, name: String) {
     val bitmap = createBitmap(mat.cols(), mat.rows())
     Utils.matToBitmap(mat, bitmap)
-
     val filename = "${name}_${System.currentTimeMillis()}.jpg"
-
     val values = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-        put(
-            MediaStore.MediaColumns.RELATIVE_PATH,
-            Environment.DIRECTORY_DCIM + "/OMR"
-        )
+        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/OMR")
     }
-
-    context.contentResolver.insert(
-        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-        values
-    )?.let { uri ->
+    context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)?.let { uri ->
         context.contentResolver.openOutputStream(uri)?.use {
             bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it)
         }
     }
 }
-
-
-
