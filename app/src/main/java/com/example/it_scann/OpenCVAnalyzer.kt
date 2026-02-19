@@ -109,19 +109,15 @@ class OpenCVAnalyzer(
 
             if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
-            val thresh = thresholdForOMR(context, warped)
-
             val detectedAnswers = mutableListOf<DetectedAnswer>()
             val testNumber = 0
-
-            processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
+            processAnswerSheetWithEnsemble(context, warped, testNumber, detectedAnswers)
 
             detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
             // Call the callback with results
             onResult(OMRResult(qrCode, detectedAnswers))
 
-            thresh.release()
             warped.release()
 
         } catch (e: Exception) {
@@ -281,7 +277,7 @@ fun detectAndWarpSheet(src: Mat): Mat? {
     return warpSheetFromPoints(src, points)
 }
 
-fun thresholdForOMR(context: Context, src: Mat): Mat {
+fun thresholdForOMR(context: Context, src: Mat, cValue: Double): Mat {
     val gray = Mat()
     val norm = Mat()
     val blur = Mat()
@@ -301,7 +297,7 @@ fun thresholdForOMR(context: Context, src: Mat): Mat {
         Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
         Imgproc.THRESH_BINARY_INV,
         69,
-        15.0
+        cValue
     )
 
     if (DEBUG_DRAW) saveDebugMat(context, thresh, "02_thresh")
@@ -317,7 +313,8 @@ fun processAnswerSheetGrid(
     thresh: Mat,
     debugMat: Mat,
     testNumber: Int,
-    answers: MutableList<DetectedAnswer>
+    answers: MutableList<DetectedAnswer>,
+    densityFloor: Double = 0.15 // Default fallback
 ) {
     val questions = 25
     val choices = 4
@@ -383,13 +380,26 @@ fun processAnswerSheetGrid(
             val ranked = fill.mapIndexed { i, v -> i to v }.sortedByDescending { it.second }
             val best = ranked[0]
             val second = ranked[1]
-            val avgFill = fill.average()
-            val minFill = avgFill * 1.0
-            val dominanceRatio = 0.70
+
+            val labels = listOf("A", "B", "C", "D")
+            val bestStr = String.format(java.util.Locale.US, "%.3f", best.second)
+            val secondStr = String.format(java.util.Locale.US, "%.3f", second.second)
+
+            Log.d("OMR_DEBUG", "Q${q+1} | Floor: $densityFloor | Best: $bestStr (${labels[best.first]}) | 2nd: $secondStr (${labels[second.first]})")
+
+            // --- CALIBRATED FOR THIN MARKS ---
+            val HARD_MIN_MARK = 0.05               // Ignores blank boxes (which score ~0.05 to 0.15)
+            val ABSOLUTE_INVALID_THRESHOLD = 0.11  // Any 2nd mark scoring > 0.40 (like your 0.614 'X') is immediately invalid
+            val dominanceRatio = 0.25              // Safety net: 2nd mark is at least 30% of the 1st mark (1.828 * 0.3 = 0.548)
 
             val detectedValue = when {
-                best.second < minFill -> -1
-                second.second > best.second * dominanceRatio -> -2
+                best.second < HARD_MIN_MARK -> -1 // Row is blank
+
+                // If the 2nd best thing in the row is at least 4% dense, it's a mark.
+                // Or if the 2nd best is at least 40% of the strength of the 1st.
+                second.second > ABSOLUTE_INVALID_THRESHOLD ||
+                        second.second > (best.second * dominanceRatio) -> -2
+
                 else -> best.first
             }
 
@@ -417,6 +427,52 @@ fun processAnswerSheetGrid(
     if (DEBUG_DRAW) saveDebugMat(context, debugMat, "04_detected")
 }
 
+fun processAnswerSheetWithEnsemble(
+    context: Context,
+    warped: Mat,
+    testNumber: Int,
+    finalAnswers: MutableList<DetectedAnswer>
+) {
+    val thresh = thresholdForOMR(context, warped, 30.0)
+
+    // Start at 0.05 (5% density) to catch the thin lines of the 'X'
+    val densityFloors = listOf(0.05, 0.10, 0.15, 0.20, 0.30)
+    val allScans = mutableListOf<List<DetectedAnswer>>()
+
+    for (floor in densityFloors) {
+        val scanAnswers = mutableListOf<DetectedAnswer>()
+        processAnswerSheetGrid(context, thresh, warped, testNumber, scanAnswers, floor)
+        allScans.add(scanAnswers)
+    }
+
+    // Voting Logic: If ANY sensitivity level saw an invalid mark, the result is -2
+    val numQuestions = allScans.first().size
+    for (i in 0 until numQuestions) {
+        val votes = allScans.map { it[i].detected }
+
+        val finalVote = when {
+            votes.contains(-2) -> -2 // Veto power: any detection of a double-mark wins
+            else -> {
+                val validVotes = votes.filter { it >= 0 }
+                if (validVotes.isEmpty()) -1
+                else {
+                    // All scans that saw a mark should agree on the same bubble
+                    val uniqueResults = validVotes.distinct()
+                    if (uniqueResults.size > 1) -2 else uniqueResults.first()
+                }
+            }
+        }
+
+        finalAnswers.add(
+            DetectedAnswer(
+                testNumber = allScans.first()[i].testNumber,
+                questionNumber = allScans.first()[i].questionNumber,
+                detected = finalVote
+            )
+        )
+    }
+    thresh.release()
+}
 /* ====================== FILE ANALYSIS ====================== */
 
 fun analyzeImageFile(
@@ -441,13 +497,10 @@ fun analyzeImageFile(
 
         if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
-        val thresh = thresholdForOMR(context, warped)
         val detectedAnswers = mutableListOf<DetectedAnswer>()
         val testNumber = 0
+        processAnswerSheetWithEnsemble(context, warped, testNumber, detectedAnswers)
 
-        processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
-
-        thresh.release()
         warped.release()
         rotated.release()
         onDetected(OMRResult(qrCode, detectedAnswers))
