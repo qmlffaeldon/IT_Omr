@@ -137,31 +137,74 @@ class OpenCVAnalyzer(
 
 fun detectSheetContour(src: Mat): Array<Point>? {
     val gray = Mat()
-    val blur = Mat()
-    val edges = Mat()
+    val thresh = Mat()
 
     Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-    Imgproc.GaussianBlur(gray, blur, Size(5.0, 5.0), 0.0)
-    Imgproc.Canny(blur, edges, 75.0, 200.0)
+    Imgproc.adaptiveThreshold(
+        gray, thresh, 255.0,
+        Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+        Imgproc.THRESH_BINARY_INV,
+        51, 15.0
+    )
 
     val contours = mutableListOf<MatOfPoint>()
-    Imgproc.findContours(edges, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
-    contours.sortByDescending { Imgproc.contourArea(it) }
+    Imgproc.findContours(thresh, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
-    val sheet = contours.firstNotNullOfOrNull { c ->
-        val peri = Imgproc.arcLength(MatOfPoint2f(*c.toArray()), true)
-        val approx = MatOfPoint2f()
-        Imgproc.approxPolyDP(MatOfPoint2f(*c.toArray()), approx, 0.02 * peri, true)
-        if (approx.total() == 4L) approx else null
+    val imgArea = src.cols() * src.rows().toDouble()
+    val anchorRects = mutableListOf<Rect>()
+
+    for (c in contours) {
+        val area = Imgproc.contourArea(c)
+        if (area < imgArea * 0.0005 || area > imgArea * 0.05) continue
+
+        val rect = Imgproc.boundingRect(c)
+        val aspectRatio = rect.width.toDouble() / rect.height.toDouble()
+        if (aspectRatio !in 0.7..1.3) continue
+
+        val fillRatio = area / (rect.width * rect.height)
+        if (fillRatio < 0.7) continue
+
+        // Store the full rectangle instead of calculating the center point
+        anchorRects.add(rect)
     }
 
-    val result = if (sheet != null) orderPoints(sheet.toArray()) else null
-
     gray.release()
-    blur.release()
-    edges.release()
+    thresh.release()
 
-    return result
+    return orderAnchorRects(anchorRects)
+}
+
+fun orderAnchorRects(rects: List<Rect>): Array<Point>? {
+    if (rects.size < 4) return null
+
+    // 1. Calculate centers just to determine which rectangle is which corner
+    val centers = rects.map { Point(it.x + it.width / 2.0, it.y + it.height / 2.0) }
+    val sum = centers.map { it.x + it.y }
+    val diff = centers.map { it.y - it.x }
+
+    val tlIndex = sum.indexOf(sum.minOrNull() ?: return null)
+    val brIndex = sum.indexOf(sum.maxOrNull() ?: return null)
+    val trIndex = diff.indexOf(diff.minOrNull() ?: return null)
+    val blIndex = diff.indexOf(diff.maxOrNull() ?: return null)
+
+    val tlRect = rects[tlIndex]
+    val trRect = rects[trIndex]
+    val brRect = rects[brIndex]
+    val blRect = rects[blIndex]
+
+    // 2. Extract the EXTREME outer coordinates of each rectangle
+    val tlPoint = Point(tlRect.x.toDouble(), tlRect.y.toDouble()) // Top-Left edge
+    val trPoint = Point((trRect.x + trRect.width).toDouble(), trRect.y.toDouble()) // Top-Right edge
+    val brPoint = Point((brRect.x + brRect.width).toDouble(), (brRect.y + brRect.height).toDouble()) // Bottom-Right edge
+    val blPoint = Point(blRect.x.toDouble(), (blRect.y + blRect.height).toDouble()) // Bottom-Left edge
+
+    // 3. Anti-false-positive check
+    val topWidth = sqrt((trPoint.x - tlPoint.x).pow(2.0) + (trPoint.y - tlPoint.y).pow(2.0))
+    val leftHeight = sqrt((blPoint.x - tlPoint.x).pow(2.0) + (blPoint.y - tlPoint.y).pow(2.0))
+
+    if (topWidth < 100 || leftHeight < 100) return null
+
+    return arrayOf(tlPoint, trPoint, brPoint, blPoint)
 }
 
 fun warpSheetFromPoints(src: Mat, orderedPoints: Array<Point>): Mat {
@@ -173,9 +216,28 @@ fun warpSheetFromPoints(src: Mat, orderedPoints: Array<Point>): Mat {
     )
 
     val matrix = Imgproc.getPerspectiveTransform(MatOfPoint2f(*orderedPoints), dst)
-    val warped = Mat()
-    Imgproc.warpPerspective(src, warped, matrix, Size(1200.0, 1600.0))
-    return warped
+    val fullWarped = Mat()
+    Imgproc.warpPerspective(src, fullWarped, matrix, Size(1200.0, 1600.0))
+
+    // Area to be cropped
+    val cropX = (1200 * 0.02125).toInt()  // Cut ~3.5% off the left margin
+    val cropY = (1600 * 0.2375).toInt()  // Cut ~21.5% off the top (Removes header)
+    val cropW = (1200 * 0.725).toInt()   // Keep ~85% of the width
+    val cropH = (1600 * 0.6875).toInt()   // Keep ~80% of the height (Removes bottom space)
+
+    // Ensure the crop doesn't go out of bounds
+    val safeRect = Rect(cropX, cropY, cropW, cropH)
+    val cropped = Mat(fullWarped, safeRect)
+
+    // 3. Resize the cropped inner box back to 1200x1600 so your old Column coordinates still work perfectly
+    val finalWarped = Mat()
+    Imgproc.resize(cropped, finalWarped, Size(1200.0, 1600.0))
+
+    // Clean up memory
+    fullWarped.release()
+    cropped.release()
+
+    return finalWarped
 }
 
 /**
@@ -202,8 +264,8 @@ fun isPaperTooSkewed(points: Array<Point>): Boolean {
     val verticalRatio = left / right
 
     // Thresholds: Allow roughly 30% distortion.
-    val minRatio = 0.70
-    val maxRatio = 1.30
+    val minRatio = 0.85
+    val maxRatio = 1.15
 
     if (horizontalRatio !in minRatio..maxRatio) return true
     if (verticalRatio !in minRatio..maxRatio) return true
@@ -261,10 +323,10 @@ fun processAnswerSheetGrid(
     val choices = 4
 
     val columns = listOf(
-        Column("Elem 2", 0.05, 0.20, 0.08, 0.90),
-        Column("Elem 3", 0.30, 0.20, 0.08, 0.90),
-        Column("Elem 4a", 0.536, 0.20, 0.08, 0.90),
-        Column("Elem 4b", 0.776, 0.20, 0.08, 0.90)
+        Column("Elem 2", 0.055, 0.1925, 0.0675, 0.925),
+        Column("Elem 3", 0.30, 0.20, 0.0675, 0.925),
+        Column("Elem 4a", 0.536, 0.20, 0.0675, 0.925),
+        Column("Elem 4b", 0.776, 0.20, 0.0675, 0.925)
     )
 
     for ((tNum, col) in columns.withIndex()) {
@@ -339,6 +401,8 @@ fun processAnswerSheetGrid(
                 )
             )
 
+            Log.d("OMR", "${col.name} Q${q + 1} → $detectedValue")
+
             if (detectedValue in 0..3) {
                 val cx = xStart + detectedValue * cWidth + cWidth / 2
                 val cy = yStart + q * qHeight + qHeight / 2
@@ -351,17 +415,6 @@ fun processAnswerSheetGrid(
         colMat.release()
     }
     if (DEBUG_DRAW) saveDebugMat(context, debugMat, "04_detected")
-}
-
-fun orderPoints(pts: Array<Point>): Array<Point> {
-    val rect = Array(4) { Point() }
-    val sum = pts.map { it.x + it.y }
-    val diff = pts.map { it.y - it.x }
-    rect[0] = pts[sum.indexOf(sum.min())]
-    rect[2] = pts[sum.indexOf(sum.max())]
-    rect[1] = pts[diff.indexOf(diff.min())]
-    rect[3] = pts[diff.indexOf(diff.max())]
-    return rect
 }
 
 /* ====================== FILE ANALYSIS ====================== */
