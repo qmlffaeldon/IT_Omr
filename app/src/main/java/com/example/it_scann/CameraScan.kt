@@ -274,7 +274,6 @@ class CameraScan : AppCompatActivity() {
 
                 isPreviewMode = true,
 
-                // Error handling (Optional)
                 onValidationError = { errorMsg ->
                     Log.d("OMR", errorMsg)
                 }
@@ -286,13 +285,12 @@ class CameraScan : AppCompatActivity() {
 
             cameraProvider.unbindAll()
 
-            // 5. Bind everything to Lifecycle (Added imageAnalysis here)
             camera = cameraProvider.bindToLifecycle(
                 this,
                 cameraSelector,
                 preview,
                 imageCapture,
-                imageAnalysis // <--- Added this
+                imageAnalysis
             )
 
         }, ContextCompat.getMainExecutor(this))

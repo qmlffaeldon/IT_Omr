@@ -52,7 +52,17 @@ class OpenCVAnalyzer(
     private val isPreviewMode: Boolean = false
 ) : ImageAnalysis.Analyzer {
 
+    private var lastAnalyzeTime = 0L
+
     override fun analyze(image: ImageProxy) {
+        val currentTime = System.currentTimeMillis()
+
+        if (isPreviewMode && currentTime - lastAnalyzeTime < 500) {
+            image.close()
+            return
+        }
+        lastAnalyzeTime = currentTime
+
         val raw = image.toMat()
         val src = rotateMatIfNeeded(raw, image.imageInfo.rotationDegrees)
         raw.release()
@@ -99,13 +109,11 @@ class OpenCVAnalyzer(
 
             if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
-            // OLD: Use the original simple threshold
             val thresh = thresholdForOMR(context, warped)
 
             val detectedAnswers = mutableListOf<DetectedAnswer>()
             val testNumber = 0
 
-            // OLD: Use the original grid processor
             processAnswerSheetGrid(context, thresh, warped, testNumber, detectedAnswers)
 
             detectedAnswers.forEach { Log.d("OMR", it.toString()) }
@@ -197,8 +205,8 @@ fun isPaperTooSkewed(points: Array<Point>): Boolean {
     val minRatio = 0.70
     val maxRatio = 1.30
 
-    if (horizontalRatio < minRatio || horizontalRatio > maxRatio) return true
-    if (verticalRatio < minRatio || verticalRatio > maxRatio) return true
+    if (horizontalRatio !in minRatio..maxRatio) return true
+    if (verticalRatio !in minRatio..maxRatio) return true
 
     return false
 }
