@@ -22,12 +22,12 @@ class Answer_key : AppCompatActivity() {
     private lateinit var adapter: QuestionAdapter
 
     private val totalQuestions = 25
-    private val totalTests = 4
+    private val totalTests = 10
 
     // 🔹 TEMP storage: testIndex -> answers[]
     private val answersPerTest = mutableMapOf<Int, IntArray>()
 
-    private var currentTestIndex = 0
+    private var currentTestIndex = 1
     private fun showSuccessDialog() {
         AlertDialog.Builder(this)
             .setTitle("Saved Successfully")
@@ -51,9 +51,10 @@ class Answer_key : AppCompatActivity() {
         setContentView(R.layout.activity_answer_key)
 
         // 🔹 Initialize empty answers for each test
-        for (i in 0 until totalTests) {
+        for (i in 1..totalTests) {
             answersPerTest[i] = IntArray(totalQuestions) { -1 }
         }
+
 
         // 🔹 RecyclerView
         val recyclerView = findViewById<RecyclerView>(R.id.questionRecycler)
@@ -63,7 +64,8 @@ class Answer_key : AppCompatActivity() {
         recyclerView.adapter = adapter
 
         // Load default test (Elem 1)
-        adapter.setAnswers(answersPerTest[0]!!)
+        adapter.setAnswers(answersPerTest[1]!!)
+
 
         // 🔹 Spinner
         val spinner = findViewById<Spinner>(R.id.testElementSpinner)
@@ -88,7 +90,7 @@ class Answer_key : AppCompatActivity() {
                 // 🔹 Save current test to TEMP
                 answersPerTest[currentTestIndex] = adapter.getAnswers()
 
-                currentTestIndex = position
+                currentTestIndex = position + 1
 
                 val db = AppDatabase.getDatabase(this@Answer_key)
 

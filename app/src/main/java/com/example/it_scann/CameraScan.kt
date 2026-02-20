@@ -46,8 +46,6 @@ class CameraScan : AppCompatActivity() {
         loadingOverlay = findViewById(R.id.loadingOverlay)
         loadingText = findViewById(R.id.loadingText)
 
-
-
         // Init OpenCV
         OpenCVLoader.initDebug()
 
@@ -151,7 +149,7 @@ class CameraScan : AppCompatActivity() {
                         imageUri = savedUri,
                         onDetected = { result ->
                             hideLoading()
-                            onAnswersDetected(result.answers)
+                            onAnswersDetected(result.answers, result.qrData)
                         },
                         onValidationError = { errorMessage ->
                             // Show error dialog
@@ -175,33 +173,80 @@ class CameraScan : AppCompatActivity() {
         AppDatabase.getDatabase(this).answerKeyDao()
     }
 
-    fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>) {
+    // Change signature
+    fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>, qrData: QRCodeData?) {
         lifecycleScope.launch {
             val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao)
 
-            val resultText = buildString {
-                append("FINAL SCORES\n")
-                append("----------------\n")
-                scores.toSortedMap().forEach { (testNumber, score) ->
-                    append("Element ${testNumber + 1}: $score / 25\n")
+            // --- Get QR data from the detected answers context ---
+
+            val testType = qrData?.testType ?: deriveTestType(scores.keys.toList())
+            val setNumber = qrData?.setNumber ?: 1
+            val seatNumber = qrData?.seatNumber ?: 1
+
+            try {
+                val db = AppDatabase.getDatabase(this@CameraScan)
+
+                val totalScore = scores.values.sum()
+
+                // 1. Insert exam result, get back generated ID
+                val examResult = ExamResultsEntity(
+                    testType = testType,
+                    setNumber = setNumber,
+                    seatNumber = seatNumber,
+                    totalScore = totalScore
+                )
+                val examResultId = db.answerKeyDao().insertExamResult(examResult)
+
+                // 2. Insert element scores using that ID
+                val elementScores = scores.map { (testNumber, score) ->
+                    ElementScoreEntity(
+                        examResultId = examResultId,
+                        elementNumber = testNumber,
+                        score = score,
+                        maxScore = 25
+                    )
                 }
+                db.answerKeyDao().upsertElementScores(elementScores)
+
+                // Build result display
+                val resultText = buildString {
+                    append("FINAL SCORES\n")
+                    append("----------------\n")
+                    scores.toSortedMap().forEach { (testNumber, score) ->
+                        append("Element $testNumber: $score / 25\n")
+                    }
+                    append("----------------\n")
+                    append("Total: $totalScore / ${scores.size * 25}")
+                }
+
+                // Show result dialog
+                delay(500)
+                AlertDialog.Builder(this@CameraScan)
+                    .setTitle("Results Saved ✓")
+                    .setMessage(resultText)
+                    .setPositiveButton("OK", null)
+                    .show()
+
+            } catch (e: Exception) {
+                Log.e("OMR", "Failed to save results", e)
+                AlertDialog.Builder(this@CameraScan)
+                    .setTitle("Save Failed")
+                    .setMessage("Results could not be saved: ${e.message}")
+                    .setPositiveButton("OK", null)
+                    .show()
             }
-            topCard.alpha = 1f
-            bottomCard.alpha = 1f
-            topCard.visibility = View.VISIBLE
-            //bottomCard.visibility = View.VISIBLE
+        }
+    }
 
-            topCard.postDelayed({
-                fadeOutViews(topCard)
-            }, 100)
-
-            Log.d("OMR", resultText)
-            delay(500)
-            AlertDialog.Builder(this@CameraScan)
-                .setTitle("Results")
-                .setMessage(resultText)
-                .setPositiveButton("OK", null)
-                .show()
+    // Helper to derive test type string from element numbers
+    private fun deriveTestType(testNumbers: List<Int>): String {
+        return when {
+            testNumbers.any { it in 8..10 } -> "A"
+            testNumbers.any { it in 5..7 }  -> "B"
+            testNumbers.any { it in 2..4 }  -> "C"
+            testNumbers.contains(1)         -> "D"
+            else -> "UNKNOWN"
         }
     }
 
@@ -303,7 +348,7 @@ class CameraScan : AppCompatActivity() {
                                 onDetected = { result ->
                                     runOnUiThread {
                                         hideLoading()
-                                        onAnswersDetected(result.answers)
+                                        onAnswersDetected(result.answers, result.qrData)
                                     }
                                 },
                                 onValidationError = { errorMessage ->

@@ -81,7 +81,7 @@ class OpenCVAnalyzer(
             detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
             // Call callback with results including parsed QR data
-            onResult(OMRResult(qrData?.toString(), detectedAnswers))
+            onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers))
 
             thresh.release()
             warped.release()
@@ -160,7 +160,7 @@ fun analyzeImageFile(
         warped.release()
         rotated.release()
 
-        onDetected(OMRResult(qrData.toString(), detectedAnswers))
+        onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers))
     }
 }
 /* ====================== THRESHOLD ====================== */
@@ -210,12 +210,14 @@ fun processAnswerSheetWithQRData(
     // Get configuration based on QR code test type
     val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
     val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
+    val testNumbers = ExamConfigurations.getTestNumbersForTestType(qrData?.testType) // ← add here
     val choices = 4
 
     Log.d("OMR", "Processing with test type: ${qrData?.testType ?: "DEFAULT"}")
     Log.d("OMR", "Using ${columns.size} columns with $questions questions each")
 
     for ((columnIndex, col) in columns.withIndex()) {
+        val realTestNumber = testNumbers.getOrElse(columnIndex) { columnIndex + 1 }
         val imgH = thresh.rows()
         val imgW = thresh.cols()
 
@@ -287,12 +289,15 @@ fun processAnswerSheetWithQRData(
             val detectedValue = when {
                 best.second < minFill -> -1 // INVALID
                 second.second > best.second * dominanceRatio -> -2 // MULTIPLE
-                else -> best.first
+                else -> best.first + 1
             }
+
+            val testNumbers = ExamConfigurations.getTestNumbersForTestType(qrData?.testType)
+            val realTestNumber = testNumbers.getOrElse(columnIndex) { columnIndex + 1 }
 
             answers.add(
                 DetectedAnswer(
-                    testNumber = columnIndex,  // Use column index as test number
+                    testNumber = realTestNumber,  // ← use this
                     questionNumber = q + 1,
                     detected = detectedValue
                 )
@@ -301,8 +306,8 @@ fun processAnswerSheetWithQRData(
             Log.d("OMR", "${col.name} Q${q + 1} → $detectedValue")
 
             // Debug visualization (if enabled)
-            if (detectedValue in 0..3) {
-                val cx = xStart + detectedValue * cWidth + cWidth / 2
+            if (detectedValue in 1..4) {
+                val cx = xStart + (detectedValue -1 ) * cWidth + cWidth / 2
                 val cy = yStart + q * qHeight + qHeight / 2
 
                 Imgproc.circle(

@@ -8,6 +8,7 @@ import org.opencv.objdetect.QRCodeDetector
 
 data class OMRResult(
     val qrCode: String?,
+    val qrData: QRCodeData?,      // ← add this
     val answers: List<DetectedAnswer>
 )
 data class QRCodeData(
@@ -191,6 +192,15 @@ object ExamConfigurations {
             "C" -> 25
             "D" -> 25
             else -> 25
+        }
+    }
+    fun getTestNumbersForTestType(testType: String?): List<Int> {
+        return when (testType?.uppercase()) {
+            "A" -> listOf(8, 9, 10)       // Elem 8, 9, 10
+            "B" -> listOf(5, 6, 7)        // Elem 5, 6, 7
+            "C" -> listOf(2, 3, 4)        // Elem 2, 3, 4
+            "D" -> listOf(1)              // Elem 1
+            else -> listOf(2, 3, 4, 5)    // Default
         }
     }
 }
