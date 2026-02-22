@@ -33,24 +33,25 @@ class QuestionAdapter(private val total: Int) :
 
         // Restore saved answer (if any)
         val savedAnswer = answers[position]
-        if (savedAnswer in 0..3) {
-            (holder.radioGroup.getChildAt(savedAnswer) as RadioButton).isChecked = true
+        if (savedAnswer in 1..4) {
+            (holder.radioGroup.getChildAt(savedAnswer - 1) as RadioButton).isChecked = true
         } else {
             holder.radioGroup.clearCheck()
         }
+
 
         // Save answer when user selects
         holder.radioGroup.setOnCheckedChangeListener { _, checkedId ->
             answers[position] =
                 holder.radioGroup.indexOfChild(
                     holder.radioGroup.findViewById(checkedId)
-                )
+                ) + 1
         }
     }
 
     override fun getItemCount(): Int = total
 
-    // 🔄 Called when switching test number
+    // 🔄 Called when switching test number.
     fun setAnswers(newAnswers: IntArray) {
         answers = newAnswers.copyOf()
         notifyDataSetChanged()

@@ -9,8 +9,6 @@ import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
 import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
@@ -63,6 +61,25 @@ class OpenCVAnalyzer(
         }
         lastAnalyzeTime = currentTime
 
+
+const val DEBUG_DRAW = true
+
+// Validation result for blank sheet detection
+data class SheetValidationResult(
+    val isValid: Boolean,
+    val reason: String,
+    val filledBubbleCount: Int = 0,
+    val totalBubbles: Int = 0
+)
+
+/* ====================== CAMERA ANALYZER ====================== */
+class OpenCVAnalyzer(
+    private val context: Context,
+    private val onResult: (OMRResult) -> Unit,
+    private val onValidationError: ((String) -> Unit)? = null
+) : androidx.camera.core.ImageAnalysis.Analyzer {
+
+    override fun analyze(image: androidx.camera.core.ImageProxy) {
         val raw = image.toMat()
         val src = rotateMatIfNeeded(raw, image.imageInfo.rotationDegrees)
         raw.release()
@@ -93,6 +110,15 @@ class OpenCVAnalyzer(
             }
 
             val qrCode = detectQRCodeWithDetailedDebug(context, src, "00_qr_detection")
+            // Detect QR code and parse data
+            val qrRawData = detectQRCodeWithDetailedDebug(context, src, "00_qr_detection")
+            val qrData = parseQRCodeData(qrRawData)
+
+            val warped = detectAndWarpSheet(src)
+            if (warped == null) {
+                onValidationError?.invoke("No answer sheet detected. Please ensure the sheet is fully visible and well-lit.")
+                return
+            }
 
             // Warp using the points we just found (Efficient!)
             val warped = if (sheetPoints != null) {
@@ -109,19 +135,48 @@ class OpenCVAnalyzer(
 
             if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
+            // VALIDATE: Check if sheet is blank before processing
+            val validation = validateAnswerSheet(
+                thresh = thresh,
+                qrData = qrData,
+                minFilledBubbles = 3  // Require at least 3 filled bubbles
+            )
+
+            if (!validation.isValid) {
+                Log.w("OMR", "Sheet validation failed: ${validation.reason}")
+                onValidationError?.invoke(validation.reason)
+                thresh.release()
+                warped.release()
+                return
+            }
+
+
+
+            Log.d("OMR", "Sheet validated: ${validation.filledBubbleCount}/${validation.totalBubbles} bubbles filled")
+
             val detectedAnswers = mutableListOf<DetectedAnswer>()
             val testNumber = 0
             processAnswerSheetWithEnsemble(context, warped, testNumber, detectedAnswers)
 
+            // Use QR code data to select appropriate configuration
+            processAnswerSheetWithQRData(
+                context = context,
+                thresh = thresh,
+                debugMat = warped,
+                qrData = qrData,
+                answers = detectedAnswers
+            )
+
             detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
-            // Call the callback with results
-            onResult(OMRResult(qrCode, detectedAnswers))
+            // Call callback with results including parsed QR data
+            onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers))
 
             warped.release()
 
         } catch (e: Exception) {
             Log.e("OMR", "OMR analyze failed", e)
+            onValidationError?.invoke("Processing error: ${e.message}")
         } finally {
             if (!src.empty()) src.release()
             image.close()
@@ -143,6 +198,19 @@ fun detectSheetContour(src: Mat): Array<Point>? {
         51, 15.0
     )
 
+/* ====================== FILE ANALYSIS ====================== */
+
+fun analyzeImageFile(
+    context: Context,
+    imageUri: android.net.Uri,
+    onDetected: (OMRResult) -> Unit,
+    onValidationError: ((String) -> Unit)? = null
+) {
+    context.contentResolver.openInputStream(imageUri)?.use { input ->
+        val bitmap = android.graphics.BitmapFactory.decodeStream(input) ?: return
+        val raw = Mat()
+        Utils.bitmapToMat(bitmap, raw)
+
     val contours = mutableListOf<MatOfPoint>()
     Imgproc.findContours(thresh, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
@@ -152,6 +220,18 @@ fun detectSheetContour(src: Mat): Array<Point>? {
     for (c in contours) {
         val area = Imgproc.contourArea(c)
         if (area < imgArea * 0.0005 || area > imgArea * 0.05) continue
+        // Detect and parse QR code
+        val qrRawData = detectQRCodeWithDetailedDebug(context, rotated, "00_qr_detection")
+        val qrData = parseQRCodeData(qrRawData)
+
+        val warped = detectAndWarpSheet(rotated)
+        if (warped == null) {
+            onValidationError?.invoke("No answer sheet detected in image.")
+            rotated.release()
+            return
+        }
+
+        if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
         val rect = Imgproc.boundingRect(c)
         val aspectRatio = rect.width.toDouble() / rect.height.toDouble()
@@ -276,6 +356,41 @@ fun detectAndWarpSheet(src: Mat): Mat? {
     val points = detectSheetContour(src) ?: return null
     return warpSheetFromPoints(src, points)
 }
+        // VALIDATE: Check if sheet is blank
+        val validation = validateAnswerSheet(
+            thresh = thresh,
+            qrData = qrData,
+            minFilledBubbles = 3
+        )
+
+        if (!validation.isValid) {
+            Log.w("OMR", "Sheet validation failed: ${validation.reason}")
+            onValidationError?.invoke(validation.reason)
+            thresh.release()
+            warped.release()
+            rotated.release()
+            return
+        }
+
+        val detectedAnswers = mutableListOf<DetectedAnswer>()
+
+        // Use QR code data to select appropriate configuration
+        processAnswerSheetWithQRData(
+            context = context,
+            thresh = thresh,
+            debugMat = warped,
+            qrData = qrData,
+            answers = detectedAnswers
+        )
+
+        thresh.release()
+        warped.release()
+        rotated.release()
+
+        onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers))
+    }
+}
+/* ====================== THRESHOLD ====================== */
 
 fun thresholdForOMR(context: Context, src: Mat, cValue: Double): Mat {
     val gray = Mat()
@@ -308,7 +423,10 @@ fun thresholdForOMR(context: Context, src: Mat, cValue: Double): Mat {
     return thresh
 }
 
-fun processAnswerSheetGrid(
+/*
+ * Process answer sheet using QR code data to select configuration
+ */
+fun processAnswerSheetWithQRData(
     context: Context,
     thresh: Mat,
     debugMat: Mat,
@@ -327,6 +445,20 @@ fun processAnswerSheetGrid(
     )
 
     for ((tNum, col) in columns.withIndex()) {
+    qrData: QRCodeData?,
+    answers: MutableList<DetectedAnswer>
+) {
+    // Get configuration based on QR code test type
+    val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
+    val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
+    val testNumbers = ExamConfigurations.getTestNumbersForTestType(qrData?.testType) // ← add here
+    val choices = 4
+
+    Log.d("OMR", "Processing with test type: ${qrData?.testType ?: "DEFAULT"}")
+    Log.d("OMR", "Using ${columns.size} columns with $questions questions each")
+
+    for ((columnIndex, col) in columns.withIndex()) {
+        val realTestNumber = testNumbers.getOrElse(columnIndex) { columnIndex + 1 }
         val imgH = thresh.rows()
         val imgW = thresh.cols()
 
@@ -336,6 +468,7 @@ fun processAnswerSheetGrid(
         val yEnd = (yStart + imgH * col.height).toInt().coerceIn(yStart + 1, imgH)
 
         val colMat = thresh.submat(yStart, yEnd, xStart, xEnd)
+
         val qHeight = colMat.rows() / questions
         val cWidth = colMat.cols() / choices
 
@@ -348,6 +481,7 @@ fun processAnswerSheetGrid(
                 val centerY = ((q + 0.5) * qHeight).toInt()
                 val y1 = (centerY - qHeight * 0.35).toInt()
                 val y2 = (centerY + qHeight * 0.35).toInt()
+
                 val x1 = c * cWidth
                 val x2 = minOf((c + 1) * cWidth, colMat.cols())
 
@@ -360,6 +494,7 @@ fun processAnswerSheetGrid(
                 if (rx2 <= rx1 || ry2 <= ry1) continue
 
                 val roi = colMat.submat(ry1, ry2, rx1, rx2)
+
                 val filledPixels = Core.countNonZero(roi)
                 val areaRatio = filledPixels.toDouble() / roi.total()
 
@@ -406,6 +541,17 @@ fun processAnswerSheetGrid(
             answers.add(
                 DetectedAnswer(
                     testNumber = tNum,
+                best.second < minFill -> -1 // INVALID
+                second.second > best.second * dominanceRatio -> -2 // MULTIPLE
+                else -> best.first + 1
+            }
+
+            val testNumbers = ExamConfigurations.getTestNumbersForTestType(qrData?.testType)
+            val realTestNumber = testNumbers.getOrElse(columnIndex) { columnIndex + 1 }
+
+            answers.add(
+                DetectedAnswer(
+                    testNumber = realTestNumber,  // ← use this
                     questionNumber = q + 1,
                     detected = detectedValue
                 )
@@ -413,8 +559,9 @@ fun processAnswerSheetGrid(
 
             Log.d("OMR", "${col.name} Q${q + 1} → $detectedValue")
 
-            if (detectedValue in 0..3) {
-                val cx = xStart + detectedValue * cWidth + cWidth / 2
+            // Debug visualization (if enabled)
+            if (detectedValue in 1..4) {
+                val cx = xStart + (detectedValue -1 ) * cWidth + cWidth / 2
                 val cy = yStart + q * qHeight + qHeight / 2
                 Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(0.0, 0.0, 255.0), 3)
             }
@@ -444,6 +591,23 @@ fun processAnswerSheetWithEnsemble(
         processAnswerSheetGrid(context, thresh, warped, testNumber, scanAnswers, floor)
         allScans.add(scanAnswers)
     }
+                Imgproc.circle(
+                    debugMat,
+                    Point(cx.toDouble(), cy.toDouble()),
+                    10,
+                    Scalar(0.0, 0.0, 255.0),
+                    3
+                )
+            }
+
+            // Draw grid lines
+            Imgproc.rectangle(
+                debugMat,
+                Point(xStart.toDouble(), yStart.toDouble()),
+                Point(xEnd.toDouble(), yEnd.toDouble()),
+                Scalar(255.0, 0.0, 0.0),
+                2
+            )
 
     // Voting Logic: If ANY sensitivity level saw an invalid mark, the result is -2
     val numQuestions = allScans.first().size
@@ -493,6 +657,16 @@ fun analyzeImageFile(
         if (warped == null) {
             rotated.release()
             return
+            for (i in 0..choices) {
+                val x = xStart + i * cWidth
+                Imgproc.line(
+                    debugMat,
+                    Point(x.toDouble(), yStart.toDouble()),
+                    Point(x.toDouble(), yEnd.toDouble()),
+                    Scalar(0.0, 255.0, 255.0),
+                    1
+                )
+            }
         }
 
         if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
@@ -506,6 +680,7 @@ fun analyzeImageFile(
         onDetected(OMRResult(qrCode, detectedAnswers))
     }
 }
+/* ====================== UTIL ====================== */
 
 fun saveDebugMat(context: Context, mat: Mat, name: String) {
     val bitmap = createBitmap(mat.cols(), mat.rows())
@@ -517,6 +692,10 @@ fun saveDebugMat(context: Context, mat: Mat, name: String) {
         put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/OMR")
     }
     context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)?.let { uri ->
+    context.contentResolver.insert(
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+        values
+    )?.let { uri ->
         context.contentResolver.openOutputStream(uri)?.use {
             bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it)
         }

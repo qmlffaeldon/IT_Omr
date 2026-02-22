@@ -8,9 +8,28 @@ import org.opencv.objdetect.QRCodeDetector
 
 data class OMRResult(
     val qrCode: String?,
+    val qrData: QRCodeData?,      // ← add this
     val answers: List<DetectedAnswer>
 )
+data class QRCodeData(
+    val testType: String?,      // "A", "B", "C", "D"
+    val setNumber: Int?,
+    val seatNumber: Int?,
+    val rawData: String
+)
+data class DetectedAnswer(
+    val testNumber: Int,
+    val questionNumber: Int,
+    val detected: Int
+)
 
+data class Column(
+    val name: String,
+    val startx: Double,
+    val width: Double,
+    val starty: Double,
+    val height: Double
+)
 fun detectQRCodeWithDetailedDebug(
     context: Context,
     src: Mat,
@@ -36,78 +55,9 @@ fun detectQRCodeWithDetailedDebug(
         var data = detector.detectAndDecode(src, points, straightQRcode)
         var source = "RGBA"
 
-        // If failed, try grayscale
-        if (data.isEmpty()) {
-            data = detector.detectAndDecode(gray, points, straightQRcode)
-            source = "GRAY"
-        }
-
-        // If still failed, try enhanced
-        if (data.isEmpty()) {
-            data = detector.detectAndDecode(enhanced, points, straightQRcode)
-            source = "ENHANCED"
-        }
-
         // Draw results
         if (data.isNotEmpty()) {
             Log.d("OMR", "QR Code detected: $data (source: $source)")
-
-            val parts = data.split(";").associate {
-                val (k, v) = it.split("=")
-                k to v
-            }
-
-            val testType = parts["TYPE"]
-            val setNumber = parts["SET"]?.toInt()
-            val seatNumber = parts["SEAT"]?.toInt()
-            Log.d("parse", "QR parsed (source: $testType)")
-            Log.d("parse", "QR parsed (source: $setNumber)")
-            Log.d("parse", "QR parsed (source: $seatNumber)")
-
-            // Draw QR boundary
-            if (points.rows() == 4) {
-                val pts = Array(4) { Point() }
-                for (i in 0..3) {
-                    pts[i] = Point(
-                        points.get(i, 0)[0],
-                        points.get(i, 0)[1]
-                    )
-                }
-
-                // Draw filled polygon background
-                val ptsList = listOf(MatOfPoint(*pts))
-                Imgproc.fillPoly(
-                    debugMat,
-                    ptsList,
-                    Scalar(0.0, 255.0, 0.0, 50.0)
-                )
-
-                // Draw boundary lines
-                for (i in 0..3) {
-                    val next = (i + 1) % 4
-                    Imgproc.line(
-                        debugMat,
-                        pts[i],
-                        pts[next],
-                        Scalar(0.0, 255.0, 0.0),
-                        8
-                    )
-                }
-
-                // Draw corner circles with numbers
-                pts.forEachIndexed { index, pt ->
-                    Imgproc.circle(debugMat, pt, 15, Scalar(255.0, 0.0, 0.0), -1)
-                    Imgproc.putText(
-                        debugMat,
-                        "${index + 1}",
-                        Point(pt.x - 10, pt.y + 10),
-                        Imgproc.FONT_HERSHEY_SIMPLEX,
-                        1.0,
-                        Scalar(255.0, 255.0, 255.0),
-                        2
-                    )
-                }
-            }
 
             // Add success banner
             Imgproc.rectangle(
@@ -178,6 +128,112 @@ fun detectQRCodeWithDetailedDebug(
     } finally {
         points.release()
         straightQRcode.release()
+    }
+}
+
+// ====================== EXAM TYPE CONFIGURATIONS ======================
+
+object ExamConfigurations {
+
+    private val RadioAmateurD = listOf(
+        Column("Elem 1", 0.05, 0.20, 0.08, 0.90)
+    )
+
+    private val RadioAmateurC = listOf(
+        Column("Elem 2", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 3", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 4", 0.54, 0.20, 0.08, 0.90)
+    )
+
+    private val RadioAmateurB = listOf(
+        Column("Elem 5", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 6", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 7", 0.54, 0.20, 0.08, 0.90)
+    )
+
+    private val RadioAmateurA = listOf(
+        Column("Elem 8", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 9", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 10", 0.54, 0.20, 0.08, 0.90)
+    )
+
+    // Default configuration (your current hardcoded one)
+    private val DefaultConfig = listOf(
+        Column("Elem 2", 0.05, 0.20, 0.08, 0.90),
+        Column("Elem 3", 0.30, 0.20, 0.08, 0.90),
+        Column("Elem 4a", 0.536, 0.20, 0.08, 0.90),
+        Column("Elem 4b", 0.776, 0.20, 0.08, 0.90)
+    )
+
+    /*
+     * Get column configuration based on test type from QR code
+     */
+    fun getColumnsForTestType(testType: String?): List<Column> {
+        return when (testType?.uppercase()) {
+            "A" -> RadioAmateurA
+            "B" -> RadioAmateurB
+            "C" -> RadioAmateurC
+            "D" -> RadioAmateurD
+            else -> {
+                Log.w("OMR", "Unknown test type '$testType', using default configuration")
+                DefaultConfig
+            }
+        }
+    }
+
+    /*
+     * Get number of questions based on test type
+     * Adjust these values based on your actual exam requirements
+     */
+    fun getQuestionsForTestType(testType: String?): Int {
+        return when (testType?.uppercase()) {
+            "A" -> 25
+            "B" -> 25
+            "C" -> 25
+            "D" -> 25
+            else -> 25
+        }
+    }
+    fun getTestNumbersForTestType(testType: String?): List<Int> {
+        return when (testType?.uppercase()) {
+            "A" -> listOf(8, 9, 10)       // Elem 8, 9, 10
+            "B" -> listOf(5, 6, 7)        // Elem 5, 6, 7
+            "C" -> listOf(2, 3, 4)        // Elem 2, 3, 4
+            "D" -> listOf(1)              // Elem 1
+            else -> listOf(2, 3, 4, 5)    // Default
+        }
+    }
+}
+
+// ====================== QR CODE PARSING ======================
+
+/*
+ * Parse QR code data into structured format
+ */
+fun parseQRCodeData(rawData: String?): QRCodeData? {
+    if (rawData.isNullOrEmpty()) return null
+
+    try {
+        val parts = rawData.split(";").associate {
+            val (k, v) = it.split("=", limit = 2)
+            k.trim() to v.trim()
+        }
+
+        val testType = parts["TYPE"]
+        val setNumber = parts["SET"]?.toInt()
+        val seatNumber = parts["SEAT"]?.toInt()
+
+        Log.d("OMR_QR", "Parsed QR - Type: $testType, Set: $setNumber, Seat: $seatNumber")
+
+        return QRCodeData(
+            testType = testType,
+            setNumber = setNumber,
+            seatNumber = seatNumber,
+            rawData = rawData
+        )
+    } catch (e: Exception) {
+        Log.e("OMR_QR", "Failed to parse QR code data: $rawData", e)
+        return null
     }
 }
 

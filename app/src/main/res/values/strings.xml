@@ -20,7 +20,7 @@
     <!--  Text Button Views  -->
     <string name="button_text_scan">Scan Answer Sheets</string>
     <string name="button_text_key">Answer Keys</string>
-    <string name="button_text_results">View Scanned Results</string>
+    <string name="button_text_results">Export Scanned Results</string>
     <string name="card_popup_button_text_scan_results">Tap here to see results</string>
 
     <!--  Text Views -->
@@ -76,6 +76,12 @@
         <item>Element 2</item>
         <item>Element 3</item>
         <item>Element 4</item>
+        <item>Element 5</item>
+        <item>Element 6</item>
+        <item>Element 7</item>
+        <item>Element 8</item>
+        <item>Element 9</item>
+        <item>Element 10</item>
     </string-array>
 
 </resources>

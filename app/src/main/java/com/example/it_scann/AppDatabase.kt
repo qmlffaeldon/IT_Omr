@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [AnswerKeyEntity::class], version = 2)
+@Database(entities = [AnswerKeyEntity::class,ExamResultsEntity::class,ElementScoreEntity::class], version = 3)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun answerKeyDao(): AnswerKeyDao

@@ -33,6 +33,7 @@ import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.AspectRatio
 import kotlin.math.pow
 import kotlin.math.sqrt
+import com.google.android.material.textview.MaterialTextView
 
 
 class CameraScan : AppCompatActivity() {
@@ -160,13 +161,17 @@ class CameraScan : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null  // add this
     private var camera: Camera? = null
     private var isFlashOn = false
+    private lateinit var loadingOverlay: View
+    private lateinit var loadingText: MaterialTextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera_scan)
 
         previewView = findViewById(R.id.previewView)
-        // previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+        //previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+        loadingOverlay = findViewById(R.id.loadingOverlay)
+        loadingText = findViewById(R.id.loadingText)
 
         // Init OpenCV
         OpenCVLoader.initDebug()
@@ -221,6 +226,162 @@ class CameraScan : AppCompatActivity() {
             finish()
         }
     }
+
+    // Fade out animation via alpha manipulation (3 secs duration)
+    private fun fadeOutViews(vararg views: View) {
+        views.forEach { view ->
+            ObjectAnimator.ofFloat(view, "alpha", 1f, 0f).apply {
+                duration = 1000
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        view.visibility = View.GONE
+                        view.alpha = 1f
+                    }
+                })
+                start()
+            }
+        }
+    }
+    private fun showLoading(message: String = "Processing image…") {
+        runOnUiThread {
+            loadingText.text = message
+            loadingOverlay.visibility = View.VISIBLE
+        }
+    }
+
+    private fun hideLoading() {
+        runOnUiThread {
+            loadingOverlay.visibility = View.GONE
+        }
+    }
+    private val galleryLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { savedUri: android.net.Uri? ->
+        if (savedUri != null) {
+            Log.d("OMR", "Image selected from gallery: $savedUri")
+
+            if (!OpenCVLoader.initDebug()) {
+                Log.e("OMR", "OpenCV initialization failed!")
+                return@registerForActivityResult
+            } else {
+                Log.d("OMR", "OpenCV loaded successfully")
+            }
+
+            Thread {
+                try {
+                    showLoading("Processing The exam…")
+
+                    analyzeImageFile(
+                        context = this,
+                        imageUri = savedUri,
+                        onDetected = { result ->
+                            hideLoading()
+                            onAnswersDetected(result.answers, result.qrData)
+                        },
+                        onValidationError = { errorMessage ->
+                            // Show error dialog
+                            AlertDialog.Builder(this)
+                                .setTitle("Invalid Sheet")
+                                .setMessage(errorMessage)
+                                .show()
+                        }
+                    )
+                } catch (e: Exception) {
+                    Log.e("OMR", "Error analyzing gallery image", e)
+                    hideLoading()
+                }
+            }.start()
+
+        }
+    }
+    private lateinit var previewView: PreviewView
+    private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val answerKeyDao by lazy {
+        AppDatabase.getDatabase(this).answerKeyDao()
+    }
+
+    // Change signature
+    fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>, qrData: QRCodeData?) {
+        lifecycleScope.launch {
+            val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao)
+
+            // --- Get QR data from the detected answers context ---
+
+            val testType = qrData?.testType ?: deriveTestType(scores.keys.toList())
+            val setNumber = qrData?.setNumber ?: 1
+            val seatNumber = qrData?.seatNumber ?: 1
+
+            try {
+                val db = AppDatabase.getDatabase(this@CameraScan)
+
+                val totalScore = scores.values.sum()
+
+                // 1. Insert exam result, get back generated ID
+                val examResult = ExamResultsEntity(
+                    testType = testType,
+                    setNumber = setNumber,
+                    seatNumber = seatNumber,
+                    totalScore = totalScore
+                )
+                val examResultId = db.answerKeyDao().insertExamResult(examResult)
+
+                // 2. Insert element scores using that ID
+                val elementScores = scores.map { (testNumber, score) ->
+                    ElementScoreEntity(
+                        examResultId = examResultId,
+                        elementNumber = testNumber,
+                        score = score,
+                        maxScore = 25
+                    )
+                }
+                db.answerKeyDao().upsertElementScores(elementScores)
+
+                // Build result display
+                val resultText = buildString {
+                    append("FINAL SCORES\n")
+                    append("----------------\n")
+                    scores.toSortedMap().forEach { (testNumber, score) ->
+                        append("Element $testNumber: $score / 25\n")
+                    }
+                    append("----------------\n")
+                    append("Total: $totalScore / ${scores.size * 25}")
+                }
+
+                // Show result dialog
+                delay(500)
+                AlertDialog.Builder(this@CameraScan)
+                    .setTitle("Results Saved ✓")
+                    .setMessage(resultText)
+                    .setPositiveButton("OK", null)
+                    .show()
+
+            } catch (e: Exception) {
+                Log.e("OMR", "Failed to save results", e)
+                AlertDialog.Builder(this@CameraScan)
+                    .setTitle("Save Failed")
+                    .setMessage("Results could not be saved: ${e.message}")
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
+    }
+
+    // Helper to derive test type string from element numbers
+    private fun deriveTestType(testNumbers: List<Int>): String {
+        return when {
+            testNumbers.any { it in 8..10 } -> "A"
+            testNumbers.any { it in 5..7 }  -> "B"
+            testNumbers.any { it in 2..4 }  -> "C"
+            testNumbers.contains(1)         -> "D"
+            else -> "UNKNOWN"
+        }
+    }
+
+    private var imageCapture: ImageCapture? = null  // add this
+    private var camera: Camera? = null
+    private var isFlashOn = false
+
+
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
@@ -300,12 +461,16 @@ class CameraScan : AppCompatActivity() {
     private fun takePhoto() {
         val imageCapture = imageCapture ?: return
 
-        // Prepare MediaStore values
         val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "${System.currentTimeMillis()}.jpg")
+            put(
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                "${System.currentTimeMillis()}.jpg"
+            )
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            // Save under your app folder in the media collection
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "Android/media/${packageName}/${resources.getString(R.string.app_name)}")
+            put(
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                "Android/media/$packageName/${getString(R.string.app_name)}"
+            )
         }
 
         val outputOptions = ImageCapture.OutputFileOptions.Builder(
@@ -318,31 +483,63 @@ class CameraScan : AppCompatActivity() {
             outputOptions,
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    val savedUri = outputFileResults.savedUri
-                    Log.d("CameraX", "Photo capture succeeded: $savedUri")
 
-                    if (savedUri != null) {
-                        // Now load your image from MediaStore URI directly
-                        analyzeImageFile(this@CameraScan, savedUri) { result ->
-                            // Handle the complete result
-                            result.qrCode?.let { qr ->
-                                Log.d("OMR", "QR Code: $qr")
-                                runOnUiThread {
-                                    // Update UI with QR code
-                                    // e.g., textViewQR.text = qr
-                                }
+                override fun onImageSaved(
+                    outputFileResults: ImageCapture.OutputFileResults
+                ) {
+                    val savedUri = outputFileResults.savedUri
+                    if (savedUri == null) {
+                        Log.e("CameraX", "Saved URI is null")
+                        return
+                    }
+
+                    Log.d("OMR", "Image captured from camera: $savedUri")
+
+                    if (!OpenCVLoader.initDebug()) {
+                        Log.e("OMR", "OpenCV initialization failed!")
+                        return
+                    } else {
+                        Log.d("OMR", "OpenCV loaded successfully")
+                    }
+
+                    Thread {
+                        try {
+                            runOnUiThread {
+                                showLoading("Processing The exam…")
                             }
 
-                            onAnswersDetected(result.answers)
+                            analyzeImageFile(
+                                context = this@CameraScan,
+                                imageUri = savedUri,
+                                onDetected = { result ->
+                                    runOnUiThread {
+                                        hideLoading()
+                                        onAnswersDetected(result.answers, result.qrData)
+                                    }
+                                },
+                                onValidationError = { errorMessage ->
+                                    runOnUiThread {
+                                        hideLoading()
+                                        AlertDialog.Builder(this@CameraScan)
+                                            .setTitle("Invalid Sheet")
+                                            .setMessage(errorMessage)
+                                            .show()
+                                    }
+                                }
+                            )
+                        } catch (e: Exception) {
+                            Log.e("OMR", "Error analyzing camera image", e)
+                            runOnUiThread { hideLoading() }
                         }
-                    } else {
-                        Log.e("CameraX", "Saved URI is null")
-                    }
+                    }.start()
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    Log.e("CameraX", "Photo capture failed: ${exception.message}", exception)
+                    Log.e(
+                        "CameraX",
+                        "Photo capture failed: ${exception.message}",
+                        exception
+                    )
                 }
             }
         )
