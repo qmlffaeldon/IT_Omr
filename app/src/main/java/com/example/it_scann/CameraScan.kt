@@ -20,6 +20,8 @@ import androidx.core.content.ContextCompat
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.lifecycle.lifecycleScope
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
@@ -28,7 +30,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textview.MaterialTextView
-
+import android.view.MotionEvent
+import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.MeteringPointFactory
+import java.util.concurrent.TimeUnit
 
 class CameraScan : AppCompatActivity() {
 
@@ -115,16 +120,26 @@ class CameraScan : AppCompatActivity() {
             }
         }
     }
-    private fun showLoading(message: String = "Processing image…") {
+    private fun showLoading(message: String) {
         runOnUiThread {
             loadingText.text = message
             loadingOverlay.visibility = View.VISIBLE
+            loadingOverlay.isClickable = true
+            loadingOverlay.isFocusable = true
+            // Optionally disable buttons explicitly
+            findViewById<ImageButton>(R.id.btn_capture).isEnabled = false
+            findViewById<ImageButton>(R.id.btn_upload).isEnabled = false
+            findViewById<ImageButton>(R.id.btn_flash).isEnabled = false
         }
     }
 
     private fun hideLoading() {
         runOnUiThread {
             loadingOverlay.visibility = View.GONE
+
+            findViewById<ImageButton>(R.id.btn_capture).isEnabled = true
+            findViewById<ImageButton>(R.id.btn_upload).isEnabled = true
+            findViewById<ImageButton>(R.id.btn_flash).isEnabled = true
         }
     }
     private val galleryLauncher = registerForActivityResult(
@@ -228,6 +243,13 @@ class CameraScan : AppCompatActivity() {
                     .setPositiveButton("OK", null)
                     .show()
 
+                topCard.alpha = 1f
+                topCard.visibility = View.VISIBLE
+
+                topCard.postDelayed({
+                    fadeOutViews(topCard)
+                }, 3000)
+
             } catch (e: Exception) {
                 Log.e("OMR", "Failed to save results", e)
                 AlertDialog.Builder(this@CameraScan)
@@ -262,31 +284,91 @@ class CameraScan : AppCompatActivity() {
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-           // val aspectRatio = AspectRatio.RATIO_4_3
-            //val rotation = previewView.display.rotation
+            // 1. Resolution / Aspect Ratio Strategy
+            val resolutionSelector = ResolutionSelector.Builder()
+                .setAspectRatioStrategy(
+                    AspectRatioStrategy(
+                        AspectRatio.RATIO_4_3,
+                        AspectRatioStrategy.FALLBACK_RULE_AUTO
+                    )
+                )
+                .build()
 
+            // 2. Preview Use Case
             val preview = Preview.Builder()
-              //  .setTargetRotation(rotation)
+                .setResolutionSelector(resolutionSelector)
                 .build()
                 .also {
                     it.surfaceProvider = previewView.surfaceProvider
                 }
 
+            // 3. ImageCapture Use Case
             imageCapture = ImageCapture.Builder()
-                //.setTargetAspectRatio(aspectRatio)
-               // .setTargetRotation(rotation)
+                .setResolutionSelector(resolutionSelector)
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .build()
+
+            val imageAnalysis = ImageAnalysis.Builder()
+                .setResolutionSelector(resolutionSelector) // Match Preview/Capture ratio
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST) // "Real-time" mode
+                .build()
+
+            imageAnalysis.setAnalyzer(cameraExecutor, OpenCVAnalyzer(
+                context = this,
+
+                // Standard OMR Result (Final scan when button is clicked or auto-scan)
+                onResult = {},
+
+                // NEW: Visual Feedback (Draws the Red/Green Box)
+                onScanFeedback = { feedback ->
+                    runOnUiThread {
+                        // Ensure you added the overlay view to your XML with this ID!
+                        val overlay = findViewById<DocumentOverlayView>(R.id.overlayView)
+                        overlay?.updateCorners(feedback.corners, feedback.isSkewed)
+                    }
+                },
+
+                isPreviewMode = true,
+
+                onValidationError = { errorMsg ->
+                    Log.d("OMR", errorMsg)
+                }
+
+
+            ))
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             cameraProvider.unbindAll()
+
             camera = cameraProvider.bindToLifecycle(
                 this,
                 cameraSelector,
                 preview,
-                imageCapture
+                imageCapture,
+                imageAnalysis
             )
+            previewView.setOnTouchListener { view, event ->
+
+                if (event.action == MotionEvent.ACTION_UP) {
+
+                    view.performClick()   // ✅ Accessibility fix
+
+                    val factory = previewView.meteringPointFactory
+                    val point = factory.createPoint(event.x, event.y)
+
+                    val action = FocusMeteringAction.Builder(
+                        point,
+                        FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+                    )
+                        .setAutoCancelDuration(1, TimeUnit.SECONDS)
+                        .build()
+
+                    camera?.cameraControl?.startFocusAndMetering(action)
+                }
+
+                true
+            }
 
         }, ContextCompat.getMainExecutor(this))
     }
