@@ -12,6 +12,7 @@ import org.opencv.android.OpenCVLoader
 import android.content.Intent
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.lifecycleScope
@@ -39,8 +40,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btn_answers).setOnClickListener {
-            Log.d("MainActivity", "Scan button clicked")
-            startActivity(Intent(this, Answer_key::class.java))
+            Log.d("MainActivity", "answerkey button clicked")
+            //startActivity(Intent(this, Answer_key::class.java))
+            pickExcelFile.launch("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         }
 
         findViewById<Button>(R.id.btn_results).setOnClickListener {
@@ -53,6 +55,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    private val pickExcelFile = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            lifecycleScope.launch {
+                val db = AppDatabase.getDatabase(this@MainActivity)
+                val result = AnswerKeyImporter.importFromUri(this@MainActivity, it, db.answerKeyDao())
+
+                if (result.success) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Import Successful")
+                        .setMessage("${result.rowsImported} exam types imported\n${result.entriesInserted} answer keys stored")
+                        .setPositiveButton("OK", null)
+                        .show()
+                } else {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Import Failed")
+                        .setMessage(result.error)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
     fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>)  {
 
         val sdfFile = SimpleDateFormat("yyyy-MM-dd_HH", Locale.getDefault())

@@ -9,14 +9,13 @@ import androidx.room.Relation
 
 @Entity(
     tableName = "answer_keys",
-    primaryKeys = ["testNumber", "questionNumber"]
+    primaryKeys = ["testNumber", "setNumber"]
 )
 data class AnswerKeyEntity(
     val testNumber: Int,
-    val questionNumber: Int,
-    val answer: Int
+    val setNumber: Int,
+    val answerString: String   // e.g. "ABCDABCDABCDABCDABCDABCDA"
 )
-
 
 @Entity(
     tableName = "exam_results",

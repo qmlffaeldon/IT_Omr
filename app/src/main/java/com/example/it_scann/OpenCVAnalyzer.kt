@@ -306,9 +306,9 @@ fun processAnswerSheetWithQRData(
             Log.d("OMR_DEBUG", "Q${q+1} | Floor: $densityFloor | Best: $bestStr (${labels[best.first]}) | 2nd: $secondStr (${labels[second.first]})")
 
             // --- CALIBRATED FOR THIN MARKS ---
-            val HARD_MIN_MARK = densityFloor           // Ignores blank boxes (which score ~0.05 to 0.15)
+            val HARD_MIN_MARK = 0.05       // Ignores blank boxes (which score ~0.05 to 0.15)
             val ABSOLUTE_INVALID_THRESHOLD = 0.11  // Any 2nd mark scoring > 0.40 (like your 0.614 'X') is immediately invalid
-            val dominanceRatio = 0.35             // Safety net: 2nd mark is at least 30% of the 1st mark (1.828 * 0.3 = 0.548)
+            val dominanceRatio = 0.25             // Safety net: 2nd mark is at least 30% of the 1st mark (1.828 * 0.3 = 0.548)
 
             val detectedValue = when {
                 best.second < HARD_MIN_MARK -> -1 // Row is blank
@@ -392,7 +392,7 @@ fun processAnswerSheetWithEnsemble(
 ) {
     val thresh = thresholdForOMR(context, warped, cValue = 15.0)  // 30.0 → 15.0
 
-    val densityFloors = listOf(0.08, 0.12, 0.18, 0.25)  // Removed 0.05 — too noisy
+    val densityFloors = listOf(0.05, 0.12, 0.18, 0.25,0.30)  // Removed 0.05 — too noisy
     val allScans = mutableListOf<List<DetectedAnswer>>()
 
     for (floor in densityFloors) {

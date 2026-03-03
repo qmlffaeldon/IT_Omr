@@ -67,6 +67,8 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
     implementation ("com.quickbirdstudios:opencv-contrib:4.5.3.0")
 
     val camerax_version = "1.5.2"

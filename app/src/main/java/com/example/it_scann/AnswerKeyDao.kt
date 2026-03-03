@@ -30,10 +30,11 @@ interface AnswerKeyDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExamResult(result: ExamResultsEntity): Long
 
-    @Query("SELECT * FROM answer_keys WHERE testNumber = :test")
-    suspend fun getAnswersForTest(test: Int): List<AnswerKeyEntity>
+    @Query("SELECT * FROM answer_keys WHERE testNumber = :test AND setNumber = :set")
+    suspend fun getAnswerKey(test: Int, set: Int): AnswerKeyEntity?
 
-    @Query("DELETE FROM answer_keys WHERE testNumber = :test")
-    suspend fun deleteTest(test: Int)
-
+    // Remove or replace the old getAnswersForTest that returned List<AnswerKeyEntity>
+// deleteTest also needs setNumber now
+    @Query("DELETE FROM answer_keys WHERE testNumber = :test AND setNumber = :set")
+    suspend fun deleteTest(test: Int, set: Int)
 }

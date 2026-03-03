@@ -7,72 +7,69 @@ import android.util.Log
 
 object ExamConfigurations {
 
-    private val RadioAmateurD = listOf(
-        Column("Elem 1", 0.055, 0.1925, 0.0675, 0.925)
+    // Maps full exam code → list of element names
+    private val examRegistry: Map<String, List<String>> = mapOf(
+        "TYPEA-080910"     to listOf("Elem 8", "Elem 9", "Elem 10"),
+        "TYPEA-080910COD"  to listOf("Elem 8", "Elem 9", "Elem 10", "Code"),
+        "TYPEB-02"         to listOf("Elem 2"),
+        "TYPEB-050607"     to listOf("Elem 5", "Elem 6", "Elem 7"),
+        "TYPEC-020304"     to listOf("Elem 2", "Elem 3", "Elem 4"),
+        "TYPEC-0304"       to listOf("Elem 3", "Elem 4"),
+        "TYPED-02"         to listOf("Elem 2"),
+        "FCRO-04"          to listOf("Elem 4"),
+        "FCRO-01020304"    to listOf("Elem 1", "Elem 2", "Elem 3", "Elem 4"),
+        "FCRO-0304"        to listOf("Elem 3", "Elem 4"),
+        "MORSE-CODE"       to listOf("Code"),
+        "RROC-01"          to listOf("Elem 1"),
+        "FCRO-010203"      to listOf("Elem 1", "Elem 2", "Elem 3"),
+        "FCRO-0102"        to listOf("Elem 1", "Elem 2")
     )
 
-    private val RadioAmateurC = listOf(
-        Column("Elem 2", 0.055, 0.1925, 0.0675, 0.925),
-        Column("Elem 3", 0.30, 0.20, 0.0675, 0.925),
-        Column("Elem 4", 0.536, 0.20, 0.0675, 0.925)
-    )
+    // X positions for up to 4 columns on the answer sheet
+    private val columnStartX = listOf(0.055, 0.30, 0.536, 0.776)
 
-    private val RadioAmateurB = listOf(
-        Column("Elem 5", 0.055, 0.1925, 0.0675, 0.925),
-        Column("Elem 6", 0.30, 0.20, 0.0675, 0.925),
-        Column("Elem 7", 0.536, 0.20, 0.0675, 0.925)
-    )
+    // Shared layout constants
+    private const val COL_WIDTH  = 0.20
+    private const val COL_STARTY = 0.0675
+    private const val COL_HEIGHT = 0.925
 
-    private val RadioAmateurA = listOf(
-        Column("Elem 8", 0.055, 0.1925, 0.0675, 0.925),
-        Column("Elem 9", 0.30, 0.20, 0.0675, 0.925),
-        Column("Elem 10", 0.536, 0.20, 0.0675, 0.925)
-    )
-
-    // Default configuration (your current hardcoded one)
-    private val DefaultConfig = listOf(
-        Column("Elem 2", 0.055, 0.1925, 0.0675, 0.925),
-        Column("Elem 3", 0.30, 0.20, 0.0675, 0.925),
-        Column("Elem 4a", 0.536, 0.20, 0.0675, 0.925),
-        Column("Elem 4b", 0.776, 0.20, 0.0675, 0.925)
-    )
-
-    /*
-     * Get column configuration based on test type from QR code
-     */
     fun getColumnsForTestType(testType: String?): List<Column> {
-        return when (testType?.uppercase()) {
-            "A" -> RadioAmateurA
-            "B" -> RadioAmateurB
-            "C" -> RadioAmateurC
-            "D" -> RadioAmateurD
-            else -> {
-                Log.w("OMR", "Unknown test type '$testType', using default configuration")
-                DefaultConfig
+        val elements = examRegistry[testType?.uppercase()]
+            ?: run {
+                Log.w("OMR", "Unknown test type '$testType', using default")
+                listOf("Elem 2", "Elem 3", "Elem 4")   // fallback
             }
+
+        return elements.mapIndexed { i, name ->
+            Column(
+                name   = name,
+                startx = columnStartX[i],
+                width  = COL_WIDTH,
+                starty = COL_STARTY,
+                height = COL_HEIGHT
+            )
         }
     }
 
-    /*
-     * Get number of questions based on test type
-     * Adjust these values based on your actual exam requirements
-     */
-    fun getQuestionsForTestType(testType: String?): Int {
-        return when (testType?.uppercase()) {
-            "A" -> 25
-            "B" -> 25
-            "C" -> 25
-            "D" -> 25
-            else -> 25
-        }
-    }
+    fun getQuestionsForTestType(testType: String?): Int = 25  // uniform across all
+
     fun getTestNumbersForTestType(testType: String?): List<Int> {
-        return when (testType?.uppercase()) {
-            "A" -> listOf(8, 9, 10)       // Elem 8, 9, 10
-            "B" -> listOf(5, 6, 7)        // Elem 5, 6, 7
-            "C" -> listOf(2, 3, 4)        // Elem 2, 3, 4
-            "D" -> listOf(1)              // Elem 1
-            else -> listOf(2, 3, 4, 5)    // Default
+        val elements = examRegistry[testType?.uppercase()] ?: return listOf(2, 3, 4)
+        return elements.mapNotNull { name ->
+            when (name) {
+                "Elem 1"  -> 1
+                "Elem 2"  -> 2
+                "Elem 3"  -> 3
+                "Elem 4"  -> 4
+                "Elem 5"  -> 5
+                "Elem 6"  -> 6
+                "Elem 7"  -> 7
+                "Elem 8"  -> 8
+                "Elem 9"  -> 9
+                "Elem 10" -> 10
+                "Code"    -> 99  // assign a sentinel for Morse code
+                else      -> null
+            }
         }
     }
 }

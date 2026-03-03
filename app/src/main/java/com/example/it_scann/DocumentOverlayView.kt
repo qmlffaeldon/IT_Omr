@@ -23,11 +23,13 @@ class DocumentOverlayView @JvmOverloads constructor(
     // 0f to 1f normalized coordinates (independent of screen size)
     private var normalizedPoints: List<PointF>? = null
     private var isSkewed: Boolean = false
+    var hasValidDocument: Boolean = false
 
     fun updateCorners(points: List<PointF>?, isSkewed: Boolean) {
         this.normalizedPoints = points
         this.isSkewed = isSkewed
-        invalidate() // Trigger a redraw
+        hasValidDocument = points != null && points.size == 4 && !isSkewed
+        invalidate() // trigger a redraw
     }
 
     override fun onDraw(canvas: Canvas) {

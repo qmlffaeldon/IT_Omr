@@ -139,27 +139,37 @@ fun detectQRCodeWithDetailedDebug(
 fun parseQRCodeData(rawData: String?): QRCodeData? {
     if (rawData.isNullOrEmpty()) return null
 
-    try {
-        val parts = rawData.split(";").associate {
-            val (k, v) = it.split("=", limit = 2)
-            k.trim() to v.trim()
+    return try {
+        val map = when {
+            rawData.contains(";") -> {
+                rawData.split(";").associate {
+                    val (k, v) = it.split("=", limit = 2)
+                    k.trim() to v.trim()
+                }
+            }
+            rawData.contains(",") -> {
+                rawData.split(",").associate {
+                    val (k, v) = it.split(":", limit = 2)
+                    k.trim() to v.trim()
+                }
+            }
+            else -> emptyMap()
         }
 
-        val testType = parts["TYPE"]
-        val setNumber = parts["SET"]?.toInt()
-        val seatNumber = parts["SEAT"]?.toInt()
+        val testType = map["TYPE"] ?: map["TestType"]
+        val setNumber = map["SET"]?.toInt() ?: map["Set"]?.toInt()
+        val seatNumber = map["SEAT"]?.toInt() ?: map["SeatNumber"]?.toInt()
 
-        Log.d("OMR_QR", "Parsed QR - Type: $testType, Set: $setNumber, Seat: $seatNumber")
-
-        return QRCodeData(
+        QRCodeData(
             testType = testType,
             setNumber = setNumber,
             seatNumber = seatNumber,
             rawData = rawData
         )
+
     } catch (e: Exception) {
         Log.e("OMR_QR", "Failed to parse QR code data: $rawData", e)
-        return null
+        null
     }
 }
 

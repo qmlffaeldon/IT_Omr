@@ -17,7 +17,7 @@ import androidx.appcompat.app.AlertDialog
 import android.widget.Toast
 
 
-class Answer_key : AppCompatActivity() {
+/*class Answer_key : AppCompatActivity() {
 
     private lateinit var adapter: QuestionAdapter
 
@@ -164,4 +164,4 @@ class Answer_key : AppCompatActivity() {
 
 
     }
-}
+}*/

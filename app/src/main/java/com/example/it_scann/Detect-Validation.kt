@@ -205,10 +205,10 @@ fun warpSheetFromPoints(src: Mat, orderedPoints: Array<Point>): Mat {
     Imgproc.warpPerspective(src, fullWarped, matrix, Size(1200.0, 1600.0))
 
     // Area to be cropped
-    val cropX = (1200 * 0.02125).toInt()  // Cut ~3.5% off the left margin
-    val cropY = (1600 * 0.2375).toInt()  // Cut ~21.5% off the top (Removes header)
-    val cropW = (1200 * 0.725).toInt()   // Keep ~85% of the width
-    val cropH = (1600 * 0.6875).toInt()   // Keep ~80% of the height (Removes bottom space)
+    val cropX = (1200 * 0.035).toInt()  // Cut ~3.5% off the left margin
+    val cropY = (1600 * 0.315).toInt()  // Cut ~21.5% off the top (Removes header)
+    val cropW = (1200 * 0.710).toInt()   // Keep ~85% of the width
+    val cropH = (1600 * 0.600).toInt()   // Keep ~80% of the height (Removes bottom space)
 
     // Ensure the crop doesn't go out of bounds
     val safeRect = Rect(cropX, cropY, cropW, cropH)
@@ -230,32 +230,29 @@ fun warpSheetFromPoints(src: Mat, orderedPoints: Array<Point>): Mat {
  * Returns TRUE if the paper is not flat enough for accurate scanning.
  */
 fun isPaperTooSkewed(points: Array<Point>): Boolean {
-    // Points are ordered: TL, TR, BR, BL
+    fun dist(p1: Point, p2: Point) = sqrt((p1.x - p2.x).pow(2.0) + (p1.y - p2.y).pow(2.0))
 
-    fun dist(p1: Point, p2: Point): Double {
-        return sqrt((p1.x - p2.x).pow(2.0) + (p1.y - p2.y).pow(2.0))
-    }
-
-    val top = dist(points[0], points[1])
-    val right = dist(points[1], points[2])
+    val top    = dist(points[0], points[1])
+    val right  = dist(points[1], points[2])
     val bottom = dist(points[2], points[3])
-    val left = dist(points[3], points[0])
+    val left   = dist(points[3], points[0])
 
-    // Safety check for divide by zero
     if (bottom == 0.0 || right == 0.0) return true
 
-    // Compare opposite sides. In a flat rectangle, ratio is ~1.0.
     val horizontalRatio = top / bottom
-    val verticalRatio = left / right
+    val verticalRatio   = left / right
 
-    // Thresholds: Allow roughly 30% distortion.
-    val minRatio = 0.85
-    val maxRatio = 1.15
+    // TIGHTENED: was 0.85–1.15, now 0.90–1.10
+    val minRatio = 0.90
+    val maxRatio = 1.10
 
-    if (horizontalRatio !in minRatio..maxRatio) return true
-    if (verticalRatio !in minRatio..maxRatio) return true
+    // NEW: Also check diagonal equality (catches perspective tilt)
+    val diag1 = dist(points[0], points[2])
+    val diag2 = dist(points[1], points[3])
+    val diagRatio = diag1 / diag2
+    if (diagRatio !in 0.90..1.10) return true
 
-    return false
+    return horizontalRatio !in minRatio..maxRatio || verticalRatio !in minRatio..maxRatio
 }
 
 /* ====================== SHEET DETECTION ====================== */

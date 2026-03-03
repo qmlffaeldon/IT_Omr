@@ -61,6 +61,9 @@ class CameraScan : AppCompatActivity() {
             takePhoto()
         }
 
+        captureButton.isEnabled = false
+        captureButton.alpha = 0.4f
+
         if (allPermissionsGranted()) {
             startCamera()
         } else {
@@ -191,29 +194,25 @@ class CameraScan : AppCompatActivity() {
     // Change signature
     fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>, qrData: QRCodeData?) {
         lifecycleScope.launch {
-            val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao)
 
-            // --- Get QR data from the detected answers context ---
-
-            val testType = qrData?.testType ?: deriveTestType(scores.keys.toList())
             val setNumber = qrData?.setNumber ?: 1
             val seatNumber = qrData?.seatNumber ?: 1
+            val examCode = qrData?.testType ?: "UNKNOWN"   // testType IS the full exam code now
+
+            val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao, setNumber)
 
             try {
                 val db = AppDatabase.getDatabase(this@CameraScan)
-
                 val totalScore = scores.values.sum()
 
-                // 1. Insert exam result, get back generated ID
                 val examResult = ExamResultsEntity(
-                    testType = testType,
+                    testType = examCode,        // store full exam code e.g. "TYPEC-020304"
                     setNumber = setNumber,
                     seatNumber = seatNumber,
                     totalScore = totalScore
                 )
                 val examResultId = db.answerKeyDao().insertExamResult(examResult)
 
-                // 2. Insert element scores using that ID
                 val elementScores = scores.map { (testNumber, score) ->
                     ElementScoreEntity(
                         examResultId = examResultId,
@@ -224,18 +223,24 @@ class CameraScan : AppCompatActivity() {
                 }
                 db.answerKeyDao().upsertElementScores(elementScores)
 
-                // Build result display
+                // Get element names for display from ExamConfigurations
+                val columns = ExamConfigurations.getColumnsForTestType(examCode)
+
                 val resultText = buildString {
                     append("FINAL SCORES\n")
+                    append("Exam: $examCode\n")
                     append("----------------\n")
                     scores.toSortedMap().forEach { (testNumber, score) ->
-                        append("Element $testNumber: $score / 25\n")
+                        // Find the element name from columns config
+                        val elementName = columns.getOrNull(
+                            ExamConfigurations.getTestNumbersForTestType(examCode).indexOf(testNumber)
+                        )?.name ?: "Elem $testNumber"
+                        append("$elementName: $score / 25\n")
                     }
                     append("----------------\n")
                     append("Total: $totalScore / ${scores.size * 25}")
                 }
 
-                // Show result dialog
                 delay(500)
                 AlertDialog.Builder(this@CameraScan)
                     .setTitle("Results Saved ✓")
@@ -245,10 +250,7 @@ class CameraScan : AppCompatActivity() {
 
                 topCard.alpha = 1f
                 topCard.visibility = View.VISIBLE
-
-                topCard.postDelayed({
-                    fadeOutViews(topCard)
-                }, 3000)
+                topCard.postDelayed({ fadeOutViews(topCard) }, 3000)
 
             } catch (e: Exception) {
                 Log.e("OMR", "Failed to save results", e)
@@ -322,9 +324,13 @@ class CameraScan : AppCompatActivity() {
                 // NEW: Visual Feedback (Draws the Red/Green Box)
                 onScanFeedback = { feedback ->
                     runOnUiThread {
-                        // Ensure you added the overlay view to your XML with this ID!
                         val overlay = findViewById<DocumentOverlayView>(R.id.overlayView)
                         overlay?.updateCorners(feedback.corners, feedback.isSkewed)
+
+                        val captureBtn = findViewById<ImageButton>(R.id.btn_capture)
+                        val ready = overlay?.hasValidDocument == true
+                        captureBtn.isEnabled = ready
+                        captureBtn.alpha = if (ready) 1f else 0.4f
                     }
                 },
 
@@ -352,7 +358,7 @@ class CameraScan : AppCompatActivity() {
 
                 if (event.action == MotionEvent.ACTION_UP) {
 
-                    view.performClick()   // ✅ Accessibility fix
+                    view.performClick()
 
                     val factory = previewView.meteringPointFactory
                     val point = factory.createPoint(event.x, event.y)
