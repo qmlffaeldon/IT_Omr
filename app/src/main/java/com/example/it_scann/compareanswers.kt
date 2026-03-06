@@ -1,9 +1,9 @@
 package com.example.it_scann
 
-// Compare all detected answers grouped by testNumber, return Map<testNumber, score>
 suspend fun compareWithAnswerKey(
     detected: List<DetectedAnswer>,
     dao: AnswerKeyDao,
+    examCode: String,
     setNumber: Int
 ): Map<Int, Int> {
 
@@ -13,7 +13,7 @@ suspend fun compareWithAnswerKey(
     val results = mutableMapOf<Int, Int>()
 
     for ((testNumber, answers) in grouped) {
-        val keyEntity = dao.getAnswerKey(testNumber, setNumber) ?: continue
+        val keyEntity = dao.getAnswerKey(examCode, testNumber, setNumber) ?: continue
         val keyString = keyEntity.answerString
 
         var score = 0

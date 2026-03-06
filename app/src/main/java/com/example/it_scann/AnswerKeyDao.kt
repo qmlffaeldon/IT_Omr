@@ -15,7 +15,7 @@ interface AnswerKeyDao {
     suspend fun getAllExamsWithElements(): List<ExamWithElements>
 
     @Upsert
-    suspend fun upsertAll(list: List<AnswerKeyEntity>)
+    suspend fun upsertAll(list: List<AnswerKeyEntity>)          // ← restored
 
     @Upsert
     suspend fun upsertElementScores(list: List<ElementScoreEntity>)
@@ -26,15 +26,15 @@ interface AnswerKeyDao {
     @Query("SELECT * FROM element_scores WHERE examResultId = :id")
     suspend fun getElementScores(id: Long): List<ElementScoreEntity>
 
-    // Need this to get the generated ID back
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertExamResult(result: ExamResultsEntity): Long
 
-    @Query("SELECT * FROM answer_keys WHERE testNumber = :test AND setNumber = :set")
-    suspend fun getAnswerKey(test: Int, set: Int): AnswerKeyEntity?
+    @Query("SELECT * FROM answer_keys WHERE examCode = :examCode AND testNumber = :test AND setNumber = :set")
+    suspend fun getAnswerKey(examCode: String, test: Int, set: Int): AnswerKeyEntity?
 
-    // Remove or replace the old getAnswersForTest that returned List<AnswerKeyEntity>
-// deleteTest also needs setNumber now
-    @Query("DELETE FROM answer_keys WHERE testNumber = :test AND setNumber = :set")
-    suspend fun deleteTest(test: Int, set: Int)
+    @Query("DELETE FROM answer_keys WHERE examCode = :examCode AND testNumber = :test AND setNumber = :set")
+    suspend fun deleteTest(examCode: String, test: Int, set: Int)
+
+    @Query("SELECT * FROM answer_keys WHERE examCode = :examCode AND setNumber = :set")
+    suspend fun getAnswerKeysForExam(examCode: String, set: Int): List<AnswerKeyEntity>  // ← renamed
 }

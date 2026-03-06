@@ -36,98 +36,97 @@ fun detectQRCodeWithDetailedDebug(
     debugName: String = "qr_detection"
 ): String? {
     val detector = QRCodeDetector()
-    val points = Mat()
-    val straightQRcode = Mat()
 
     try {
-        // Create debug image with original
-        val debugMat = src.clone()
-
-        // Also try detecting on different preprocessed versions
         val gray = Mat()
-        val enhanced = Mat()
-
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
-        val clahe = Imgproc.createCLAHE(3.0, Size(8.0, 8.0))
-        clahe.apply(gray, enhanced)
 
-        // Try detection on original
-        var data = detector.detectAndDecode(src, points, straightQRcode)
-        var source = "RGBA"
+        // Try multiple scales — small QR codes need upscaling
+        val scalesToTry = listOf(1.0, 2.0, 3.0, 4.0)
 
-        // Draw results
-        if (data.isNotEmpty()) {
-            Log.d("OMR", "QR Code detected: $data (source: $source)")
+        for (scale in scalesToTry) {
+            val scaled = Mat()
 
-            // Add success banner
-            Imgproc.rectangle(
-                debugMat,
-                Point(0.0, 0.0),
-                Point(src.cols().toDouble(), 150.0),
-                Scalar(0.0, 200.0, 0.0),
-                -1
-            )
+            if (scale == 1.0) {
+                gray.copyTo(scaled)
+            } else {
+                Imgproc.resize(
+                    gray, scaled, Size(),
+                    scale, scale,
+                    Imgproc.INTER_CUBIC  // Better quality for upscaling
+                )
+            }
 
-            Imgproc.putText(
-                debugMat,
-                "QR FOUND: $data",
-                Point(30.0, 70.0),
-                Imgproc.FONT_HERSHEY_SIMPLEX,
-                2.0,
-                Scalar(255.0, 255.0, 255.0),
-                4
-            )
+            // Apply CLAHE on the scaled image
+            val enhanced = Mat()
+            val clahe = Imgproc.createCLAHE(3.0, Size(8.0, 8.0))
+            clahe.apply(scaled, enhanced)
 
-            Imgproc.putText(
-                debugMat,
-                "Source: $source",
-                Point(30.0, 120.0),
-                Imgproc.FONT_HERSHEY_SIMPLEX,
-                1.2,
-                Scalar(255.0, 255.0, 255.0),
-                3
-            )
+            // Try both raw and enhanced versions
+            val attempts = listOf(scaled to "gray_${scale}x", enhanced to "enhanced_${scale}x")
 
-        } else {
-            Log.d("OMR", "No QR code found in any version")
+            for ((mat, label) in attempts) {
+                val points = Mat()
+                val straight = Mat()
 
-            // Add failure banner
-            Imgproc.rectangle(
-                debugMat,
-                Point(0.0, 0.0),
-                Point(src.cols().toDouble(), 150.0),
-                Scalar(0.0, 0.0, 200.0),
-                -1
-            )
+                val data = try {
+                    detector.detectAndDecode(mat, points, straight)
+                } catch (e: Exception) {
+                    ""
+                } finally {
+                    points.release()
+                    straight.release()
+                }
 
-            Imgproc.putText(
-                debugMat,
-                "QR NOT FOUND",
-                Point(30.0, 90.0),
-                Imgproc.FONT_HERSHEY_SIMPLEX,
-                2.5,
-                Scalar(255.0, 255.0, 255.0),
-                5
-            )
+                if (data.isNotEmpty()) {
+                    Log.d("OMR", "QR found at scale=${scale}x source=$label → $data")
+                    scaled.release()
+                    enhanced.release()
+                    gray.release()
+                    return data
+                }
+            }
+
+            scaled.release()
+            enhanced.release()
         }
 
-        // Save all debug versions
-        if (DEBUG_DRAW) {
-            saveDebugMat(context, debugMat, "${debugName}_result")
+        // Last resort: sharpen then try again at 3x
+        val sharpened = Mat()
+        val kernel = Mat(3, 3, CvType.CV_32F).apply {
+            put(0, 0,  0.0, -1.0,  0.0)
+            put(1, 0, -1.0,  5.0, -1.0)
+            put(2, 0,  0.0, -1.0,  0.0)
+        }
+        val scaled3x = Mat()
+        Imgproc.resize(gray, scaled3x, Size(), 3.0, 3.0, Imgproc.INTER_CUBIC)
+        Imgproc.filter2D(scaled3x, sharpened, -1, kernel)
+
+        val points = Mat()
+        val straight = Mat()
+        val data = try {
+            detector.detectAndDecode(sharpened, points, straight)
+        } catch (e: Exception) { "" }
+        finally {
+            points.release()
+            straight.release()
         }
 
-        debugMat.release()
         gray.release()
-        enhanced.release()
+        sharpened.release()
+        scaled3x.release()
 
-        return data.ifEmpty { null }
+        if (data.isNotEmpty()) {
+            Log.d("OMR", "QR found via sharpening: $data")
+            return data
+        }
+
+        Log.d("OMR", "QR not found after all attempts")
+        return null
 
     } catch (e: Exception) {
         Log.e("OMR", "QR detection failed", e)
         return null
-    } finally {
-        points.release()
-        straightQRcode.release()
     }
 }
 

@@ -206,8 +206,8 @@ fun warpSheetFromPoints(src: Mat, orderedPoints: Array<Point>): Mat {
 
     // Area to be cropped
     val cropX = (1200 * 0.035).toInt()  // Cut ~3.5% off the left margin
-    val cropY = (1600 * 0.315).toInt()  // Cut ~21.5% off the top (Removes header)
-    val cropW = (1200 * 0.710).toInt()   // Keep ~85% of the width
+    val cropY = (1600 * 0.295).toInt()  // Cut ~21.5% off the top (Removes header)
+    val cropW = (1200 * 0.775).toInt()   // Keep ~85% of the width
     val cropH = (1600 * 0.600).toInt()   // Keep ~80% of the height (Removes bottom space)
 
     // Ensure the crop doesn't go out of bounds
@@ -255,8 +255,7 @@ fun isPaperTooSkewed(points: Array<Point>): Boolean {
     return horizontalRatio !in minRatio..maxRatio || verticalRatio !in minRatio..maxRatio
 }
 
-/* ====================== SHEET DETECTION ====================== */
-/*
+/* ====================== SHEET DETECTION ======================
 fun detectAndWarpSheet(src: Mat): Mat? {
     val gray = Mat()
     val blur = Mat()

@@ -150,7 +150,7 @@ fun analyzeImageFile(
         val thresh = thresholdForOMR(context, warped, cValue = 30.0)
 
         // VALIDATE: Check if sheet is blank
-       val validation = validateAnswerSheet(
+       /*val validation = validateAnswerSheet(
             thresh = thresh,
             qrData = qrData,
             minFilledBubbles = 3
@@ -163,7 +163,7 @@ fun analyzeImageFile(
             warped.release()
             rotated.release()
             return
-        }
+        }*/
 
         val detectedAnswers = mutableListOf<DetectedAnswer>()
 

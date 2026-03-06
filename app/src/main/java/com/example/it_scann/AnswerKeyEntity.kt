@@ -9,26 +9,24 @@ import androidx.room.Relation
 
 @Entity(
     tableName = "answer_keys",
-    primaryKeys = ["testNumber", "setNumber"]
+    primaryKeys = ["examCode", "testNumber", "setNumber"]  // examCode added
 )
 data class AnswerKeyEntity(
+    val examCode: String,       // e.g. "TYPEC-020304"
     val testNumber: Int,
     val setNumber: Int,
-    val answerString: String   // e.g. "ABCDABCDABCDABCDABCDABCDA"
+    val answerString: String
 )
 
 @Entity(
     tableName = "exam_results",
-    indices = [Index(value = ["testType", "setNumber", "seatNumber"], unique = true)]
+    indices = [Index(value = ["examCode", "setNumber", "seatNumber"], unique = true)]
 )
 data class ExamResultsEntity(
-    @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
-
-    val testType: String,
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val examCode: String,
     val setNumber: Int,
     val seatNumber: Int,
-
     val totalScore: Int,
     val dateTaken: Long = System.currentTimeMillis()
 )

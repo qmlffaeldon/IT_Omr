@@ -195,19 +195,20 @@ class CameraScan : AppCompatActivity() {
     fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>, qrData: QRCodeData?) {
         lifecycleScope.launch {
 
-            val setNumber = qrData?.setNumber ?: 1
+            val setNumber  = qrData?.setNumber ?: 1
             val seatNumber = qrData?.seatNumber ?: 1
-            val examCode = qrData?.testType ?: "UNKNOWN"   // testType IS the full exam code now
+            val examCode   = qrData?.testType ?: "UNKNOWN"
 
-            val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao, setNumber)
+            // ← pass examCode here now
+            val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao, examCode, setNumber)
 
             try {
                 val db = AppDatabase.getDatabase(this@CameraScan)
                 val totalScore = scores.values.sum()
 
                 val examResult = ExamResultsEntity(
-                    testType = examCode,        // store full exam code e.g. "TYPEC-020304"
-                    setNumber = setNumber,
+                    examCode   = examCode,      // ← use examCode field (from entity refactor)
+                    setNumber  = setNumber,
                     seatNumber = seatNumber,
                     totalScore = totalScore
                 )
@@ -215,25 +216,25 @@ class CameraScan : AppCompatActivity() {
 
                 val elementScores = scores.map { (testNumber, score) ->
                     ElementScoreEntity(
-                        examResultId = examResultId,
+                        examResultId  = examResultId,
                         elementNumber = testNumber,
-                        score = score,
-                        maxScore = 25
+                        score         = score,
+                        maxScore      = 25
                     )
                 }
                 db.answerKeyDao().upsertElementScores(elementScores)
 
-                // Get element names for display from ExamConfigurations
-                val columns = ExamConfigurations.getColumnsForTestType(examCode)
+                val columns      = ExamConfigurations.getColumnsForTestType(examCode)
+                val testNumbers  = ExamConfigurations.getTestNumbersForTestType(examCode)
 
                 val resultText = buildString {
                     append("FINAL SCORES\n")
                     append("Exam: $examCode\n")
+                    append("Seat: $seatNumber  |  Set: $setNumber\n")
                     append("----------------\n")
                     scores.toSortedMap().forEach { (testNumber, score) ->
-                        // Find the element name from columns config
                         val elementName = columns.getOrNull(
-                            ExamConfigurations.getTestNumbersForTestType(examCode).indexOf(testNumber)
+                            testNumbers.indexOf(testNumber)
                         )?.name ?: "Elem $testNumber"
                         append("$elementName: $score / 25\n")
                     }
@@ -260,17 +261,6 @@ class CameraScan : AppCompatActivity() {
                     .setPositiveButton("OK", null)
                     .show()
             }
-        }
-    }
-
-    // Helper to derive test type string from element numbers
-    private fun deriveTestType(testNumbers: List<Int>): String {
-        return when {
-            testNumbers.any { it in 8..10 } -> "A"
-            testNumbers.any { it in 5..7 }  -> "B"
-            testNumbers.any { it in 2..4 }  -> "C"
-            testNumbers.contains(1)         -> "D"
-            else -> "UNKNOWN"
         }
     }
 

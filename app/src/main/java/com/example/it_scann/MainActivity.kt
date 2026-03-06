@@ -80,10 +80,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>)  {
+    fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>) {
 
         val sdfFile = SimpleDateFormat("yyyy-MM-dd_HH", Locale.getDefault())
-        val fileName = "ROEC_${sdfFile.format(Date())}.csv"
+        val fileName = "Results_${sdfFile.format(Date())}.csv"
 
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
@@ -95,65 +95,44 @@ class MainActivity : AppCompatActivity() {
         }
 
         val resolver = context.contentResolver
-        val uri = resolver.insert(
-            MediaStore.Files.getContentUri("external"),
-            contentValues
-        )
+        val uri = resolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
 
         uri?.let { fileUri ->
             resolver.openOutputStream(fileUri)?.use { outputStream ->
                 val writer = outputStream.bufferedWriter()
 
-                // HEADER (Always fixed structure)
-                writer.write(
-                    "SeatNumber,TestType,SetNumber," +
-                            "E1,E2,E3,E4,E5,E6,E7,E8,E9,E10," +
-                            "TotalScore,DateTaken\n"
-                )
+                // Header — E1-E10 + separate Code column for Morse/COD
+                writer.write("SeatNumber,E1,E2,E3,E4,E5,E6,E7,E8,E9,E10,Code\n")
 
-                exams.forEach { examWithElements ->
+                exams.sortedBy { it.exam.seatNumber }.forEach { examWithElements ->
+                    val exam             = examWithElements.exam
+                    val expectedElements = ExamConfigurations.getTestNumbersForTestType(exam.examCode)
+                    val elementMap       = examWithElements.elements.associateBy { it.elementNumber }
 
-                    val exam = examWithElements.exam
-
-                    // Get expected elements based on TestType
-                    val expectedElements =
-                        ExamConfigurations.getTestNumbersForTestType(exam.testType)
-
-                    // Map detected element scores by elementNumber
-                    val elementMap =
-                        examWithElements.elements.associateBy { it.elementNumber }
-
-                    // Always output E1–E10 to prevent shifting
-                    val elementScores = (1..10).joinToString(",") { elementNumber ->
-                        if (elementNumber in expectedElements) {
-                            elementMap[elementNumber]?.score?.toString() ?: "0"
-                        } else {
-                            ""
-                        }
+                    // E1–E10 columns
+                    val elemScores = (1..10).joinToString(",") { elemNumber ->
+                        if (elemNumber in expectedElements) {
+                            elementMap[elemNumber]?.score?.toString() ?: "0"
+                        } else ""
                     }
 
-                    val sdfDisplay = SimpleDateFormat("yyyy-MM-dd_HH:mm", Locale.getDefault())
-                    val formattedDate = sdfDisplay.format(Date(exam.dateTaken))
+                    // Code column — testNumber 99 is the sentinel for Morse/COD
+                    val codeScore = if (99 in expectedElements) {
+                        elementMap[99]?.score?.toString() ?: "0"
+                    } else ""
 
-                    writer.write(
-                        "${exam.seatNumber}," +
-                                "${exam.testType}," +
-                                "${exam.setNumber}," +
-                                "$elementScores," +
-                                "${exam.totalScore}," +
-                                "$formattedDate\n"
-                    )
+                    writer.write("${exam.seatNumber},$elemScores,$codeScore\n")
                 }
 
                 writer.flush()
             }
         }
-        Log.d("ExportCSV", "Exported to Documents/ROEC_ExamResults")
+
+        Log.d("ExportCSV", "Simplified export done")
         AlertDialog.Builder(this@MainActivity)
-            .setTitle("Results Exported to a CSV File")
+            .setTitle("Results Exported")
             .setMessage("Exported to Documents/ROEC_ExamResults")
             .setPositiveButton("OK", null)
             .show()
-
     }
 }

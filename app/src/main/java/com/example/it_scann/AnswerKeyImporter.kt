@@ -2,6 +2,7 @@ package com.example.it_scann
 
 import android.content.Context
 import android.net.Uri
+import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import java.io.InputStream
 import kotlin.math.floor
@@ -26,9 +27,7 @@ object AnswerKeyImporter {
     )
 
     // Returns list of entities parsed from this row, or null if row should be skipped
-    private fun parseRow(
-        row: org.apache.poi.ss.usermodel.Row
-    ): Pair<List<AnswerKeyEntity>, Int>? {
+    private fun parseRow(row: Row): Pair<List<AnswerKeyEntity>, Int>? {
         val examCode = getCellAsString(row, 0) ?: return null
         val setNumber = getCellAsString(row, 1)?.toIntOrNull() ?: return null
         val testNumbers = examCodeToTestNumbers[examCode.uppercase()] ?: return Pair(emptyList(), 1)
@@ -45,6 +44,7 @@ object AnswerKeyImporter {
             if (isValid) {
                 entities.add(
                     AnswerKeyEntity(
+                        examCode = examCode.uppercase(),  // ← added
                         testNumber = testNumber,
                         setNumber = setNumber,
                         answerString = keyString.uppercase()
@@ -54,7 +54,6 @@ object AnswerKeyImporter {
                 errors++
             }
         }
-
         return Pair(entities, errors)
     }
 
