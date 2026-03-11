@@ -28,6 +28,7 @@ data class ExamResultsEntity(
     val setNumber: Int,
     val seatNumber: Int,
     val totalScore: Int,
+    val isAbsent: Boolean = false,          // NEW: marks absent examinees
     val dateTaken: Long = System.currentTimeMillis()
 )
 

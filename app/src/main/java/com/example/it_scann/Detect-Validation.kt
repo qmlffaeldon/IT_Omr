@@ -13,7 +13,21 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 /* ====================== BLANK SHEET VALIDATION ====================== */
+enum class ValidationFailReason {
+    NO_SHEET,        // warped == null, camera couldn't find the paper
+    BLANK,           // 0 bubbles → show Absent dialog
+    TOO_FEW,         // 1–2 bubbles → show re-scan warning
+    VALID
+}
 
+data class SheetValidationResult(
+    val isValid: Boolean,
+    val reason: String,
+    val failReason: ValidationFailReason = ValidationFailReason.VALID,
+    val filledBubbleCount: Int,
+    val totalBubbles: Int,
+    val qrData: QRCodeData? = null   // ← carry it along for absent saving
+)
 /**
  * Validates if the answer sheet has sufficient filled bubbles to be processed
  * Returns validation result with details
@@ -91,30 +105,27 @@ fun validateAnswerSheet(
 
     // Determine if sheet is valid
     return when {
-        filledBubbles == 0 -> {
-            SheetValidationResult(
-                isValid = false,
-                reason = "Answer sheet appears to be blank. Please fill in your answers before scanning.",
-                filledBubbleCount = 0,
-                totalBubbles = totalBubbles
-            )
-        }
-        filledBubbles < minFilledBubbles -> {
-            SheetValidationResult(
-                isValid = false,
-                reason = "Only $filledBubbles answer(s) detected. Please ensure you've filled in at least $minFilledBubbles answers.",
-                filledBubbleCount = filledBubbles,
-                totalBubbles = totalBubbles
-            )
-        }
-        else -> {
-            SheetValidationResult(
-                isValid = true,
-                reason = "Sheet validated successfully",
-                filledBubbleCount = filledBubbles,
-                totalBubbles = totalBubbles
-            )
-        }
+        filledBubbles == 0 -> SheetValidationResult(
+            isValid = false,
+            reason = "Answer sheet appears to be blank.",
+            failReason = ValidationFailReason.BLANK,       // ← triggers Absent dialog
+            filledBubbleCount = 0,
+            totalBubbles = totalBubbles
+        )
+        filledBubbles < minFilledBubbles -> SheetValidationResult(
+            isValid = false,
+            reason = "Only $filledBubbles answer(s) detected. Please re-scan.",
+            failReason = ValidationFailReason.TOO_FEW,     // ← triggers re-scan warning
+            filledBubbleCount = filledBubbles,
+            totalBubbles = totalBubbles
+        )
+        else -> SheetValidationResult(
+            isValid = true,
+            reason = "Sheet validated successfully",
+            failReason = ValidationFailReason.VALID,
+            filledBubbleCount = filledBubbles,
+            totalBubbles = totalBubbles
+        )
     }
 }
 
@@ -242,9 +253,9 @@ fun isPaperTooSkewed(points: Array<Point>): Boolean {
     val horizontalRatio = top / bottom
     val verticalRatio   = left / right
 
-    // TIGHTENED: was 0.85–1.15, now 0.90–1.10
-    val minRatio = 0.90
-    val maxRatio = 1.10
+   // default value 0.85–1.15
+    val minRatio = 0.95
+    val maxRatio = 1.15
 
     // NEW: Also check diagonal equality (catches perspective tilt)
     val diag1 = dist(points[0], points[2])

@@ -169,12 +169,47 @@ class CameraScan : AppCompatActivity() {
                             hideLoading()
                             onAnswersDetected(result.answers, result.qrData)
                         },
-                        onValidationError = { errorMessage ->
-                            // Show error dialog
-                            AlertDialog.Builder(this)
-                                .setTitle("Invalid Sheet")
-                                .setMessage(errorMessage)
-                                .show()
+                        onValidationError = { validation ->
+                            runOnUiThread {
+                                hideLoading()
+                                when (validation.failReason) {
+                                    ValidationFailReason.NO_SHEET,
+                                    ValidationFailReason.TOO_FEW -> {
+                                        AlertDialog.Builder(this)
+                                            .setTitle("Invalid Sheet")
+                                            .setMessage(validation.reason)
+                                            .setPositiveButton("OK", null)
+                                            .show()
+                                    }
+                                    ValidationFailReason.BLANK -> {
+                                        // Same absent dialog as camera path
+                                        AlertDialog.Builder(this)
+                                            .setTitle("Blank Answer Sheet")
+                                            .setMessage("No answers detected.\n\nIs this examinee absent?")
+                                            .setPositiveButton("Yes, Mark Absent") { _, _ ->
+                                                lifecycleScope.launch {
+                                                    try {
+                                                        val db = AppDatabase.getDatabase(this@CameraScan)
+                                                        val absentResult = ExamResultsEntity(
+                                                            examCode   = validation.qrData?.testType   ?: "UNKNOWN",
+                                                            setNumber  = validation.qrData?.setNumber  ?: 1,
+                                                            seatNumber = validation.qrData?.seatNumber ?: 1,
+                                                            totalScore = 0,
+                                                            isAbsent   = true
+                                                        )
+                                                        db.answerKeyDao().insertExamResult(absentResult)
+                                                    } catch (e: Exception) {
+                                                        Log.e("OMR", "Failed to save absent result", e)
+                                                    }
+                                                }
+                                            }
+                                            .setNegativeButton("No, Re-scan", null)
+                                            .setCancelable(false)
+                                            .show()
+                                    }
+                                    ValidationFailReason.VALID -> {}
+                                }
+                            }
                         }
                     )
                 } catch (e: Exception) {
@@ -429,13 +464,84 @@ class CameraScan : AppCompatActivity() {
                                         onAnswersDetected(result.answers, result.qrData)
                                     }
                                 },
-                                onValidationError = { errorMessage ->
+                                onValidationError = { validation ->
                                     runOnUiThread {
                                         hideLoading()
-                                        AlertDialog.Builder(this@CameraScan)
-                                            .setTitle("Invalid Sheet")
-                                            .setMessage(errorMessage)
-                                            .show()
+                                        when (validation.failReason) {
+
+                                            ValidationFailReason.NO_SHEET -> {
+                                                AlertDialog.Builder(this@CameraScan)
+                                                    .setTitle("Sheet Not Found")
+                                                    .setMessage("No answer sheet detected. Please reposition and try again.")
+                                                    .setPositiveButton("OK", null)
+                                                    .setCancelable(false)
+                                                    .show()
+                                            }
+
+                                            ValidationFailReason.BLANK -> {
+                                                AlertDialog.Builder(this@CameraScan)
+                                                    .setTitle("Blank Answer Sheet")
+                                                    .setMessage("No answers detected.\n\nIs this examinee absent?")
+                                                    .setPositiveButton("Yes, Mark Absent") { _, _ ->
+                                                        lifecycleScope.launch {
+                                                            try {
+                                                                val db = AppDatabase.getDatabase(this@CameraScan)
+
+                                                                // Fall back to safe defaults if QR wasn't readable
+                                                                val examCode   = validation.qrData?.testType   ?: "UNKNOWN"
+                                                                val setNumber  = validation.qrData?.setNumber  ?: 1
+                                                                val seatNumber = validation.qrData?.seatNumber ?: 1
+
+                                                                val absentResult = ExamResultsEntity(
+                                                                    examCode   = examCode,
+                                                                    setNumber  = setNumber,
+                                                                    seatNumber = seatNumber,
+                                                                    totalScore = 0,
+                                                                    isAbsent   = true
+                                                                )
+                                                                db.answerKeyDao().insertExamResult(absentResult)
+                                                                // No ElementScoreEntity rows — absent students have none
+
+                                                                // Show confirmation then show the same top card feedback
+                                                                AlertDialog.Builder(this@CameraScan)
+                                                                    .setTitle("Marked Absent ✓")
+                                                                    .setMessage("Seat $seatNumber has been marked absent.")
+                                                                    .setPositiveButton("OK", null)
+                                                                    .show()
+
+                                                                topCard.alpha = 1f
+                                                                topCard.visibility = View.VISIBLE
+                                                                topCard.postDelayed({ fadeOutViews(topCard) }, 3000)
+
+                                                            } catch (e: Exception) {
+                                                                Log.e("OMR", "Failed to save absent result", e)
+                                                                AlertDialog.Builder(this@CameraScan)
+                                                                    .setTitle("Save Failed")
+                                                                    .setMessage("Could not mark as absent: ${e.message}")
+                                                                    .setPositiveButton("OK", null)
+                                                                    .show()
+                                                            }
+                                                        }
+                                                    }
+                                                    .setNegativeButton("No, Re-scan", null)
+                                                    .setCancelable(false)
+                                                    .show()
+                                            }
+
+                                            ValidationFailReason.TOO_FEW -> {
+                                                AlertDialog.Builder(this@CameraScan)
+                                                    .setTitle("Poor Scan Quality")
+                                                    .setMessage(
+                                                        "Only ${validation.filledBubbleCount} answer(s) detected.\n\n" +
+                                                                "Please reposition the sheet and try again."
+                                                    )
+                                                    .setPositiveButton("Re-scan", null)
+                                                    .setCancelable(false)
+                                                    .show()
+                                            }
+
+                                            ValidationFailReason.VALID -> { /* won't reach here */ }
+                                        }
                                     }
                                 }
                             )

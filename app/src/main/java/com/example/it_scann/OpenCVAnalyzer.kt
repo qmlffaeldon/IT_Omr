@@ -17,15 +17,6 @@ import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
 
 const val DEBUG_DRAW = true
-
-
-data class SheetValidationResult(
-    val isValid: Boolean,
-    val reason: String,
-    val filledBubbleCount: Int = 0,
-    val totalBubbles: Int = 0
-)
-
 // Data class for Real-Time UI Feedback
 data class ScanFeedback(
     val corners: List<PointF>?, // Normalized 0..1
@@ -101,13 +92,12 @@ class OpenCVAnalyzer(
             if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
             val detectedAnswers = mutableListOf<DetectedAnswer>()
-            processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers)
+            processAnswerSheetWithEnsembleHybrid(context, warped, qrData, detectedAnswers)
 
             detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
             // Call the callback with results
             onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers))
-
             warped.release()
 
         } catch (e: Exception) {
@@ -125,7 +115,7 @@ fun analyzeImageFile(
     context: Context,
     imageUri: Uri,
     onDetected: (OMRResult) -> Unit,
-    onValidationError: ((String) -> Unit)? = null
+    onValidationError: ((SheetValidationResult) -> Unit)? = null
 ) {
     context.contentResolver.openInputStream(imageUri)?.use { input ->
         val bitmap = BitmapFactory.decodeStream(input) ?: return
@@ -140,7 +130,16 @@ fun analyzeImageFile(
         val warped = detectAndWarpSheet(rotated)
 
         if (warped == null) {
-            onValidationError?.invoke("No answer sheet detected in image.")
+            onValidationError?.invoke(
+                SheetValidationResult(
+                    isValid = false,
+                    reason = "No answer sheet detected in image.",
+                    failReason = ValidationFailReason.NO_SHEET,
+                    filledBubbleCount = 0,
+                    totalBubbles = 0,
+                    qrData = null
+                )
+            )
             rotated.release()
             return
         }
@@ -150,25 +149,24 @@ fun analyzeImageFile(
         val thresh = thresholdForOMR(context, warped, cValue = 30.0)
 
         // VALIDATE: Check if sheet is blank
-       /*val validation = validateAnswerSheet(
+       val validation = validateAnswerSheet(
             thresh = thresh,
             qrData = qrData,
             minFilledBubbles = 3
         )
 
         if (!validation.isValid) {
-            Log.w("OMR", "Sheet validation failed: ${validation.reason}")
-            onValidationError?.invoke(validation.reason)
             thresh.release()
             warped.release()
             rotated.release()
+            onValidationError?.invoke(validation.copy(qrData = qrData))  // ← attach qrData
             return
-        }*/
+        }
 
         val detectedAnswers = mutableListOf<DetectedAnswer>()
 
 
-        processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers)
+        processAnswerSheetWithEnsembleHybrid(context, warped, qrData, detectedAnswers)
 
         warped.release()
         rotated.release()

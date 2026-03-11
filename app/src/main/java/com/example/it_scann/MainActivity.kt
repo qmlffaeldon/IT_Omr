@@ -110,14 +110,28 @@ class MainActivity : AppCompatActivity() {
                     val elementMap       = examWithElements.elements.associateBy { it.elementNumber }
 
                     // E1–E10 columns
-                    val elemScores = (1..10).joinToString(",") { elemNumber ->
-                        if (elemNumber in expectedElements) {
-                            elementMap[elemNumber]?.score?.toString() ?: "0"
-                        } else ""
+                    val elemScores = if (exam.isAbsent) {
+                        // Put "A" only in the first expected element column, leave others blank
+                        val firstExpected = expectedElements.filter { it != 99 }.minOrNull()
+                        (1..10).joinToString(",") { elemNumber ->
+                            when {
+                                elemNumber == firstExpected -> "A"
+                                elemNumber in expectedElements -> ""   // other expected cols = blank
+                                else -> ""                             // non-applicable cols = blank
+                            }
+                        }
+                    } else {
+                        (1..10).joinToString(",") { elemNumber ->
+                            if (elemNumber in expectedElements) {
+                                elementMap[elemNumber]?.score?.toString() ?: "0"
+                            } else ""
+                        }
                     }
 
-                    // Code column — testNumber 99 is the sentinel for Morse/COD
-                    val codeScore = if (99 in expectedElements) {
+                    // Code column — absent students also leave Code blank
+                    val codeScore = if (exam.isAbsent) {
+                        ""
+                    } else if (99 in expectedElements) {
                         elementMap[99]?.score?.toString() ?: "0"
                     } else ""
 
