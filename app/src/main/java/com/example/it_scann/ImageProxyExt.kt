@@ -56,14 +56,26 @@ fun rotateBitmapIfNeeded(context: Context, uri: Uri, mat: Mat): Mat {
     )
 
     val rotated = Mat()
+
     when (orientation) {
         androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 ->
             Core.rotate(mat, rotated, Core.ROTATE_90_CLOCKWISE)
+
         androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 ->
             Core.rotate(mat, rotated, Core.ROTATE_180)
+
         androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 ->
             Core.rotate(mat, rotated, Core.ROTATE_90_COUNTERCLOCKWISE)
-        else -> mat.copyTo(rotated)
+
+        else -> {
+            // EXIF says normal, check if landscape
+            if (mat.width() > mat.height()) {
+                Core.rotate(mat, rotated, Core.ROTATE_90_CLOCKWISE)
+            } else {
+                mat.copyTo(rotated)
+            }
+        }
     }
+
     return rotated
 }

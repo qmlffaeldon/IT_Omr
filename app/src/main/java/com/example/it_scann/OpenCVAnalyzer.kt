@@ -122,12 +122,20 @@ fun analyzeImageFile(
         val raw = Mat()
         Utils.bitmapToMat(bitmap, raw)
         val rotated = rotateBitmapIfNeeded(context, imageUri, raw)
-        raw.release()
 
-        val qrRawData = detectQRCodeWithDetailedDebug(context, rotated, "00_qr_detection")
+        val finalMat = if (rotated.width() > rotated.height()) {
+            val corrected = Mat()
+            Core.rotate(rotated, corrected, Core.ROTATE_90_CLOCKWISE)
+            rotated.release()
+            corrected
+        } else {
+            rotated
+        }
+        val qrRawData = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
         val qrData = parseQRCodeData(qrRawData)
 
-        val warped = detectAndWarpSheet(rotated)
+        val warped = detectAndWarpSheet(finalMat)
+        finalMat.release()
 
         if (warped == null) {
             onValidationError?.invoke(
@@ -214,188 +222,118 @@ fun thresholdForOMR(context: Context, src: Mat, cValue: Double): Mat {
     return thresh
 }
 
-fun processAnswerSheetWithQRData(
+fun processAnswerSheetHybrid(
     context: Context,
     thresh: Mat,
     debugMat: Mat,
     qrData: QRCodeData?,
     answers: MutableList<DetectedAnswer>,
-    densityFloor: Double = 0.15 // Default fallback
+    densityFloor: Double = 0.15
 ) {
+    val columns     = ExamConfigurations.getColumnsForTestType(qrData?.testType)
+    val questions   = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
+    val testNumbers = ExamConfigurations.getTestNumbersForTestType(qrData?.testType)
+    val choices     = 4
 
-    val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
-    val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
-    val testNumbers = ExamConfigurations.getTestNumbersForTestType(qrData?.testType) // ← add here
-    val choices = 4
-
-    Log.d("OMR", "Processing with test type: ${qrData?.testType ?: "DEFAULT"}")
-    Log.d("OMR", "Using ${columns.size} columns with $questions questions each")
+    Log.d("OMR", "[HYBRID] test=${qrData?.testType ?: "DEFAULT"} cols=${columns.size} q=$questions")
 
     for ((columnIndex, col) in columns.withIndex()) {
         val imgH = thresh.rows()
         val imgW = thresh.cols()
 
         val xStart = (imgW * col.startx).toInt().coerceIn(0, imgW - 1)
-        val xEnd = (xStart + imgW * col.width).toInt().coerceIn(xStart + 1, imgW)
-
+        val xEnd   = (xStart + imgW * col.width).toInt().coerceIn(xStart + 1, imgW)
         val yStart = (imgH * col.starty).toInt().coerceIn(0, imgH - 1)
-        val yEnd = (yStart + imgH * col.height).toInt().coerceIn(yStart + 1, imgH)
+        val yEnd   = (yStart + imgH * col.height).toInt().coerceIn(yStart + 1, imgH)
 
         val colMat = thresh.submat(yStart, yEnd, xStart, xEnd)
 
-        val qHeight = colMat.rows() / questions
-        val cWidth = colMat.cols() / choices
+        // ── Hybrid scan ───────────────────────────────────────────────────────
+        val cells = HybridBubbleScanner.scanColumn(
+            colMat    = colMat,
+            questions = questions,
+            choices   = choices,
+            debugTag  = col.name
+        )
+        // cells is a flat list: row-major order  (q=0,c=0), (q=0,c=1), …, (q=24,c=3)
 
+        // ── Per-question decision (same logic as original) ────────────────────
         for (q in 0 until questions) {
-            val fill = DoubleArray(choices)
-
-            for (c in 0 until choices) {
-                val padX = (cWidth * 0.15).toInt()
-                val padY = (qHeight * 0.10).toInt()
-
-                val centerY = ((q + 0.5) * qHeight).toInt()
-                val y1 = (centerY - qHeight * 0.35).toInt()
-                val y2 = (centerY + qHeight * 0.35).toInt()
-
-                val x1 = c * cWidth
-                val x2 = minOf((c + 1) * cWidth, colMat.cols())
-
-                if (y2 <= y1 || x2 <= x1) continue
-
-                val rx1 = (x1 + padX).coerceAtLeast(0)
-                val ry1 = (y1 + padY).coerceAtLeast(0)
-                val rx2 = (x2 - padX).coerceAtMost(colMat.cols())
-                val ry2 = (y2 - padY).coerceAtMost(colMat.rows())
-
-                if (rx2 <= rx1 || ry2 <= ry1) continue
-
-                val roi = colMat.submat(ry1, ry2, rx1, rx2)
-
-                val filledPixels = Core.countNonZero(roi)
-                val areaRatio = filledPixels.toDouble() / roi.total()
-
-                val contours = mutableListOf<MatOfPoint>()
-                Imgproc.findContours(
-                    roi.clone(),
-                    contours,
-                    Mat(),
-                    Imgproc.RETR_EXTERNAL,
-                    Imgproc.CHAIN_APPROX_SIMPLE
-                )
-
-                val maxContourArea = contours.maxOfOrNull {
-                    Imgproc.contourArea(it)
-                } ?: 0.0
-
-                fill[c] = areaRatio + (maxContourArea / roi.total())
-
-                roi.release()
+            val fill = DoubleArray(choices) { c ->
+                cells.first { it.row == q && it.col == c }.fillScore
             }
 
-
             val ranked = fill.mapIndexed { i, v -> i to v }.sortedByDescending { it.second }
-            val best = ranked[0]
+            val best   = ranked[0]
             val second = ranked[1]
 
-            val labels = listOf("A", "B", "C", "D")
-            val bestStr = String.format(java.util.Locale.US, "%.3f", best.second)
-            val secondStr = String.format(java.util.Locale.US, "%.3f", second.second)
-
-            Log.d("OMR_DEBUG", "Q${q+1} | Floor: $densityFloor | Best: $bestStr (${labels[best.first]}) | 2nd: $secondStr (${labels[second.first]})")
-
-            // --- CALIBRATED FOR THIN MARKS ---
-            val HARD_MIN_MARK = 0.05       // Ignores blank boxes (which score ~0.05 to 0.15)
-            val ABSOLUTE_INVALID_THRESHOLD = 0.11  // Any 2nd mark scoring > 0.40 (like your 0.614 'X') is immediately invalid
-            val dominanceRatio = 0.25             // Safety net: 2nd mark is at least 30% of the 1st mark (1.828 * 0.3 = 0.548)
+            val HARD_MIN_MARK              = 0.05
+            val ABSOLUTE_INVALID_THRESHOLD = 0.11
+            val DOMINANCE_RATIO            = 0.25
 
             val detectedValue = when {
-                best.second < HARD_MIN_MARK -> -1 // Row is blank
+                best.second < HARD_MIN_MARK -> -1
 
-                // If the 2nd best thing in the row is at least 4% dense, it's a mark.
-                // Or if the 2nd best is at least 40% of the strength of the 1st.
                 second.second > ABSOLUTE_INVALID_THRESHOLD &&
-                        second.second > (best.second * dominanceRatio) -> -2
+                        second.second > (best.second * DOMINANCE_RATIO) -> -2
 
                 else -> best.first + 1
             }
 
-            val testNumbers = ExamConfigurations.getTestNumbersForTestType(qrData?.testType)
             val realTestNumber = testNumbers.getOrElse(columnIndex) { columnIndex + 1 }
 
             answers.add(
                 DetectedAnswer(
-                    testNumber = realTestNumber,  // ← use this
+                    testNumber     = realTestNumber,
                     questionNumber = q + 1,
-                    detected = detectedValue
+                    detected       = detectedValue
                 )
             )
 
-            Log.d("OMR", "${col.name} Q${q + 1} → $detectedValue")
+            val labels  = listOf("A", "B", "C", "D")
+            val bestStr = String.format(java.util.Locale.US, "%.3f", best.second)
+            val secStr  = String.format(java.util.Locale.US, "%.3f", second.second)
+            Log.d("OMR_DEBUG", "[HYBRID] ${col.name} Q${q+1} | best=$bestStr (${labels[best.first]}) 2nd=$secStr (${labels[second.first]}) → $detectedValue")
 
+            // ── Debug overlay ─────────────────────────────────────────────────
             if (detectedValue in 1..4) {
-                val cx = xStart + (detectedValue -1 ) * cWidth + cWidth / 2
-                val cy = yStart + q * qHeight + qHeight / 2
-
-                Imgproc.circle(
-                    debugMat,
-                    Point(cx.toDouble(), cy.toDouble()),
-                    10,
-                    Scalar(0.0, 0.0, 255.0),
-                    3
-                )
-            }
-
-            // Draw grid lines
-            Imgproc.rectangle(
-                debugMat,
-                Point(xStart.toDouble(), yStart.toDouble()),
-                Point(xEnd.toDouble(), yEnd.toDouble()),
-                Scalar(255.0, 0.0, 0.0),
-                2
-            )
-
-            for (i in 0..questions) {
-                val y = yStart + i * qHeight
-                Imgproc.line(
-                    debugMat,
-                    Point(xStart.toDouble(), y.toDouble()),
-                    Point(xEnd.toDouble(), y.toDouble()),
-                    Scalar(0.0, 255.0, 0.0),
-                    1
-                )
-            }
-
-            for (i in 0..choices) {
-                val x = xStart + i * cWidth
-                Imgproc.line(
-                    debugMat,
-                    Point(x.toDouble(), yStart.toDouble()),
-                    Point(x.toDouble(), yEnd.toDouble()),
-                    Scalar(0.0, 255.0, 255.0),
-                    1
-                )
+                // Use the contour-corrected centre for the debug dot
+                val cell = cells.first { it.row == q && it.col == detectedValue - 1 }
+                val cx   = xStart + cell.center.x
+                val cy   = yStart + cell.center.y
+                val color = if (cell.fromContour) Scalar(0.0, 255.0, 0.0) else Scalar(0.0, 0.0, 255.0)
+                // Green dot = contour-anchored  |  Red dot = grid-fallback
+                Imgproc.circle(debugMat, Point(cx, cy), 10, color, 3)
             }
         }
 
+        // Draw column bounding box on debug mat (same as original)
+        Imgproc.rectangle(
+            debugMat,
+            Point(xStart.toDouble(), yStart.toDouble()),
+            Point(xEnd.toDouble(),   yEnd.toDouble()),
+            Scalar(255.0, 0.0, 0.0), 2
+        )
+
         colMat.release()
     }
-    if (DEBUG_DRAW) saveDebugMat(context, debugMat, "04_detected")
+
+    if (DEBUG_DRAW) saveDebugMat(context, debugMat, "04_detected_hybrid")
 }
 
-fun processAnswerSheetWithEnsemble(
+fun processAnswerSheetWithEnsembleHybrid(
     context: Context,
     warped: Mat,
     qrData: QRCodeData?,
     finalAnswers: MutableList<DetectedAnswer>
 ) {
-    val thresh = thresholdForOMR(context, warped, cValue = 15.0)  // 30.0 → 15.0
-
-    val densityFloors = listOf(0.05, 0.12, 0.18, 0.25,0.30)  // Removed 0.05 — too noisy
-    val allScans = mutableListOf<List<DetectedAnswer>>()
+    val thresh        = thresholdForOMR(context, warped, cValue = 15.0)
+    val densityFloors = listOf(0.05, 0.12, 0.18, 0.25, 0.30)
+    val allScans      = mutableListOf<List<DetectedAnswer>>()
 
     for (floor in densityFloors) {
         val scanAnswers = mutableListOf<DetectedAnswer>()
-        processAnswerSheetWithQRData(context, thresh, warped, qrData, scanAnswers, floor)
+        processAnswerSheetHybrid(context, thresh, warped, qrData, scanAnswers, floor)
         allScans.add(scanAnswers)
     }
 
@@ -404,30 +342,29 @@ fun processAnswerSheetWithEnsemble(
         val votes = allScans.map { it[i].detected }
 
         val finalVote = when {
-            votes.count { it == -2 } > allScans.size / 2 -> -2 // Veto power: any detection of a double-mark wins
+            votes.count { it == -2 } > allScans.size / 2 -> -2
             else -> {
-                val validVotes = votes.filter { it >= 0 }
-                if (validVotes.isEmpty()) -1
-                else {
-                    // All scans that saw a mark should agree on the same bubble
-                    val uniqueResults = validVotes.distinct()
-                    if (uniqueResults.size > 1) -2 else uniqueResults.first()
+                val validVotes    = votes.filter { it >= 0 }
+                val uniqueResults = validVotes.distinct()
+                when {
+                    validVotes.isEmpty()    -> -1
+                    uniqueResults.size > 1  -> -2
+                    else                   -> uniqueResults.first()
                 }
             }
         }
 
         finalAnswers.add(
             DetectedAnswer(
-                testNumber = allScans.first()[i].testNumber,
+                testNumber     = allScans.first()[i].testNumber,
                 questionNumber = allScans.first()[i].questionNumber,
-                detected = finalVote
+                detected       = finalVote
             )
         )
-
     }
+
     thresh.release()
 }
-
 
 fun saveDebugMat(context: Context, mat: Mat, name: String) {
     val bitmap = createBitmap(mat.cols(), mat.rows())
