@@ -154,7 +154,7 @@ fun analyzeImageFile(
 
         if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
-        val thresh = thresholdForOMR(context, warped, cValue = 30.0)
+        val thresh = thresholdForOMR(context, warped, cValue = 15.0, blockSize = 69)
 
         // VALIDATE: Check if sheet is blank
        val validation = validateAnswerSheet(
@@ -191,7 +191,7 @@ fun detectAndWarpSheet(src: Mat): Mat? {
     return warpSheetFromPoints(src, points)
 }
 
-fun thresholdForOMR(context: Context, src: Mat, cValue: Double): Mat {
+fun thresholdForOMR(context: Context, src: Mat, cValue: Double, blockSize: Int): Mat {
     val gray = Mat()
     val norm = Mat()
     val blur = Mat()
@@ -210,11 +210,11 @@ fun thresholdForOMR(context: Context, src: Mat, cValue: Double): Mat {
         255.0,
         Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
         Imgproc.THRESH_BINARY_INV,
-        69,
+        blockSize, // <-- Now uses the dynamic block size
         cValue
     )
 
-    if (DEBUG_DRAW) saveDebugMat(context, thresh, "02_thresh")
+    if (DEBUG_DRAW) saveDebugMat(context, thresh, "02_thresh_c${cValue.toInt()}_b$blockSize")
 
     gray.release()
     norm.release()
@@ -228,7 +228,7 @@ fun processAnswerSheetHybrid(
     debugMat: Mat,
     qrData: QRCodeData?,
     answers: MutableList<DetectedAnswer>,
-    densityFloor: Double = 0.15
+    params: OMRParams
 ) {
     val columns     = ExamConfigurations.getColumnsForTestType(qrData?.testType)
     val questions   = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
@@ -267,15 +267,12 @@ fun processAnswerSheetHybrid(
             val best   = ranked[0]
             val second = ranked[1]
 
-            val HARD_MIN_MARK              = 0.05
-            val ABSOLUTE_INVALID_THRESHOLD = 0.11
-            val DOMINANCE_RATIO            = 0.25
-
+            // Use the dynamic parameters passed into the function
             val detectedValue = when {
-                best.second < HARD_MIN_MARK -> -1
+                best.second < params.hardMinMark -> -1
 
-                second.second > ABSOLUTE_INVALID_THRESHOLD &&
-                        second.second > (best.second * DOMINANCE_RATIO) -> -2
+                second.second > params.invalidThreshold &&
+                        second.second > (best.second * params.dominanceRatio) -> -2
 
                 else -> best.first + 1
             }
@@ -321,20 +318,48 @@ fun processAnswerSheetHybrid(
     if (DEBUG_DRAW) saveDebugMat(context, debugMat, "04_detected_hybrid")
 }
 
+data class OMRParams(
+    val cValue: Double,
+    val blockSize: Int, // Must always be an odd number
+    val hardMinMark: Double,
+    val invalidThreshold: Double,
+    val dominanceRatio: Double
+)
+
 fun processAnswerSheetWithEnsembleHybrid(
     context: Context,
     warped: Mat,
     qrData: QRCodeData?,
     finalAnswers: MutableList<DetectedAnswer>
 ) {
-    val thresh        = thresholdForOMR(context, warped, cValue = 15.0)
-    val densityFloors = listOf(0.05, 0.12, 0.18, 0.25, 0.30)
-    val allScans      = mutableListOf<List<DetectedAnswer>>()
+    // Define the sweep from Normal (index 0) to Edge Case (index 4)
+    // Note: blockSize is incremented by 8 each step to ensure it remains an odd number
+    val parameterSweep = listOf(
+        OMRParams(cValue = 15.0, blockSize = 69,  hardMinMark = 0.050, invalidThreshold = 0.200, dominanceRatio = 0.300),
+        OMRParams(cValue = 28.5, blockSize = 77,  hardMinMark = 0.038, invalidThreshold = 0.153, dominanceRatio = 0.225),
+        OMRParams(cValue = 42.0, blockSize = 85,  hardMinMark = 0.02, invalidThreshold = 0.05, dominanceRatio = 0.01),
+        OMRParams(cValue = 55.5, blockSize = 93,  hardMinMark = 0.001, invalidThreshold = 0.002, dominanceRatio = 0.005),
+        OMRParams(cValue = 69.0, blockSize = 101, hardMinMark = 0.000, invalidThreshold = 0.0015, dominanceRatio = 0.003)
+    )
 
-    for (floor in densityFloors) {
+    val allScans = mutableListOf<List<DetectedAnswer>>()
+
+    for (params in parameterSweep) {
         val scanAnswers = mutableListOf<DetectedAnswer>()
-        processAnswerSheetHybrid(context, thresh, warped, qrData, scanAnswers, floor)
+
+        // 1. Create a uniquely thresholded image using the pristine 'warped' image
+        val thresh = thresholdForOMR(context, warped, params.cValue, params.blockSize)
+
+        // 2. Clone the pristine image specifically for this step's debug drawing
+        val stepDebugMat = warped.clone()
+
+        // 3. Scan the image and draw on the clone, NOT the original
+        processAnswerSheetHybrid(context, thresh, stepDebugMat, qrData, scanAnswers, params)
         allScans.add(scanAnswers)
+
+        // 4. Release both mats to prevent memory leaks
+        thresh.release()
+        stepDebugMat.release()
     }
 
     val numQuestions = allScans.first().size
@@ -362,8 +387,6 @@ fun processAnswerSheetWithEnsembleHybrid(
             )
         )
     }
-
-    thresh.release()
 }
 
 fun saveDebugMat(context: Context, mat: Mat, name: String) {
