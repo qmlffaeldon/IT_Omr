@@ -173,6 +173,13 @@ class CameraScan : AppCompatActivity() {
             }
         }
     }
+
+    private fun updateLoadingText(message: String) {
+        runOnUiThread {
+            loadingText.text = message
+        }
+    }
+
     private fun showLoading(message: String) {
         runOnUiThread {
             loadingText.text = message
@@ -215,6 +222,7 @@ class CameraScan : AppCompatActivity() {
                     analyzeImageFile(
                         context = this,
                         imageUri = savedUri,
+                        onProgress = { msg -> updateLoadingText(msg) },
                         onDetected = { result ->
                             hideLoading()
                             onAnswersDetected(result.answers, result.qrData)
@@ -610,6 +618,7 @@ class CameraScan : AppCompatActivity() {
                             analyzeImageFile(
                                 context = this@CameraScan,
                                 imageUri = savedUri,
+                                onProgress = { msg -> updateLoadingText(msg) },
                                 onDetected = { result ->
                                     runOnUiThread {
                                         hideLoading()
