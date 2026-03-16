@@ -35,12 +35,25 @@ import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.MeteringPointFactory
 import java.util.concurrent.TimeUnit
 
+import android.content.Context
+import android.view.KeyEvent
+import android.view.LayoutInflater
+import android.view.inputmethod.EditorInfo
+import androidx.core.widget.addTextChangedListener
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 class CameraScan : AppCompatActivity() {
 
     private lateinit var topCard: CardView
     private lateinit var bottomCard: CardView
     private lateinit var loadingOverlay: View
     private lateinit var loadingText: MaterialTextView
+
+    private var lastScannedExamCode: String = "UNKNOWN"
+    private var lastScannedSetNumber: Int = 1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,6 +118,43 @@ class CameraScan : AppCompatActivity() {
 
         btnBack.setOnClickListener {
             finish()
+        }
+
+        findViewById<MaterialButton>(R.id.btn_manual_absent).setOnClickListener {
+            showManualAbsenteeDialog(this) { absenteesList ->
+                lifecycleScope.launch {
+                    try {
+                        val db = AppDatabase.getDatabase(this@CameraScan)
+
+                        // Loop through the list and save each as an absent entity
+                        for (seat in absenteesList) {
+                            val absentResult = ExamResultsEntity(
+                                examCode   = lastScannedExamCode,
+                                setNumber  = lastScannedSetNumber,
+                                seatNumber = seat,
+                                totalScore = 0,
+                                isAbsent   = true
+                            )
+                            db.answerKeyDao().insertExamResult(absentResult)
+                        }
+
+                        // Show Success Feedback
+                        AlertDialog.Builder(this@CameraScan)
+                            .setTitle("Absentees Saved ✓")
+                            .setMessage("${absenteesList.size} absentees saved for $lastScannedExamCode (Set $lastScannedSetNumber).\n\nSeats: $absenteesList")
+                            .setPositiveButton("OK", null)
+                            .show()
+
+                    } catch (e: Exception) {
+                        Log.e("OMR", "Failed to save manual absentees", e)
+                        AlertDialog.Builder(this@CameraScan)
+                            .setTitle("Save Failed")
+                            .setMessage("Could not save absentees: ${e.message}")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                }
+            }
         }
     }
 
@@ -234,6 +284,10 @@ class CameraScan : AppCompatActivity() {
             val seatNumber = qrData?.seatNumber ?: 1
             val examCode   = qrData?.testType ?: "UNKNOWN"
 
+            // UPDATE THE VARIABLES HERE
+            lastScannedExamCode = examCode
+            lastScannedSetNumber = setNumber
+
             // ← pass examCode here now
             val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao, examCode, setNumber)
 
@@ -299,11 +353,109 @@ class CameraScan : AppCompatActivity() {
         }
     }
 
+    fun showManualAbsenteeDialog(context: Context, onAbsenteesSaved: (List<Int>) -> Unit) {
+        val bottomSheetDialog = BottomSheetDialog(context)
+        val view = LayoutInflater.from(context).inflate(R.layout.dialog_absentee_entry, null)
+        bottomSheetDialog.setContentView(view)
+
+        val etInput = view.findViewById<TextInputEditText>(R.id.etAbsentInput)
+        val inputLayout = view.findViewById<TextInputLayout>(R.id.absentInputLayout)
+        val chipGroup = view.findViewById<ChipGroup>(R.id.chipGroupAbsentees)
+        val btnCancel = view.findViewById<MaterialButton>(R.id.btnCancel)
+        val btnSave = view.findViewById<MaterialButton>(R.id.btnSaveAbsentees)
+
+        // Parses string "5" into listOf(5), or "5-7" into listOf(5,6,7)
+        fun parseSeatInput(input: String): List<Int> {
+            val singleRegex = Regex("^\\d+$")
+            val rangeRegex = Regex("^(\\d+)-(\\d+)$")
+
+            return when {
+                singleRegex.matches(input) -> listOf(input.toInt())
+                rangeRegex.matches(input) -> {
+                    val match = rangeRegex.find(input)!!
+                    val (start, end) = match.destructured
+                    val s = start.toInt()
+                    val e = end.toInt()
+                    if (s <= e) (s..e).toList() else (e..s).toList() // Handles "7-5" just in case
+                }
+                else -> emptyList()
+            }
+        }
+
+        // Core function to evaluate text and convert to Chip
+        fun processInput() {
+            val text = etInput.text.toString().trim().removeSuffix(",").trim()
+            if (text.isEmpty()) return
+
+            val parsedSeats = parseSeatInput(text)
+            if (parsedSeats.isEmpty()) {
+                inputLayout.error = "Invalid format. Use '5' or '5-10'"
+                return
+            }
+
+            inputLayout.error = null
+            etInput.setText("")
+
+            // Create the Chip
+            val chip = Chip(context).apply {
+                val label = if (parsedSeats.size == 1) "Seat ${parsedSeats.first()}"
+                else "Seats ${parsedSeats.first()} - ${parsedSeats.last()}"
+                this.text = label
+                this.isCloseIconVisible = true
+                this.setOnCloseIconClickListener {
+                    chipGroup.removeView(this)
+                }
+                // Store the raw list of Ints secretly inside the chip's tag
+                this.tag = parsedSeats
+            }
+            chipGroup.addView(chip)
+        }
+
+        // Trigger on Space or Comma
+        etInput.addTextChangedListener { editable ->
+            val s = editable?.toString() ?: ""
+            if (s.endsWith(" ") || s.endsWith(",")) {
+                processInput()
+            }
+        }
+
+        // Trigger on Enter/Done key on the soft keyboard
+        etInput.setOnEditorActionListener { _, actionId, event: KeyEvent? ->
+            if (actionId == EditorInfo.IME_ACTION_DONE ||
+                (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
+                processInput()
+                true
+            } else {
+                false
+            }
+        }
+
+        btnCancel.setOnClickListener { bottomSheetDialog.dismiss() }
+
+        btnSave.setOnClickListener {
+            processInput() // Catch anything left in the text box that wasn't spaced/entered
+
+            // Gather all ints from all chips
+            val allAbsentees = mutableSetOf<Int>()
+            for (i in 0 until chipGroup.childCount) {
+                val chip = chipGroup.getChildAt(i) as? Chip
+                val seats = chip?.tag as? List<Int>
+                if (seats != null) {
+                    allAbsentees.addAll(seats)
+                }
+            }
+
+            // Pass the sorted list back to the activity
+            onAbsenteesSaved(allAbsentees.toList().sorted())
+            bottomSheetDialog.dismiss()
+        }
+
+        bottomSheetDialog.show()
+    }
+
     private var imageCapture: ImageCapture? = null  // add this
     private var camera: Camera? = null
     private var isFlashOn = false
-
-
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
