@@ -23,6 +23,7 @@
             android:theme="@style/Theme.IT_Scan" />
         <activity
             android:name=".CameraScan"
+            android:screenOrientation="portrait"
             android:exported="false" />
         <activity
             android:name=".MainActivity"

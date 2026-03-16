@@ -114,6 +114,7 @@ class OpenCVAnalyzer(
 fun analyzeImageFile(
     context: Context,
     imageUri: Uri,
+    onProgress: ((String) -> Unit)? = null,
     onDetected: (OMRResult) -> Unit,
     onValidationError: ((SheetValidationResult) -> Unit)? = null
 ) {
@@ -131,9 +132,12 @@ fun analyzeImageFile(
         } else {
             rotated
         }
+
+        onProgress?.invoke("Detecting QR Code...")
         val qrRawData = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
         val qrData = parseQRCodeData(qrRawData)
 
+        onProgress?.invoke("Cropping and warping image...")
         val warped = detectAndWarpSheet(finalMat)
         finalMat.release()
 
@@ -154,9 +158,11 @@ fun analyzeImageFile(
 
         if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
+        onProgress?.invoke("Converting to threshold image...")
         val thresh = thresholdForOMR(context, warped, cValue = 15.0, blockSize = 69)
 
         // VALIDATE: Check if sheet is blank
+        onProgress?.invoke("Validating answer sheet...")
        val validation = validateAnswerSheet(
             thresh = thresh,
             qrData = qrData,
@@ -178,6 +184,8 @@ fun analyzeImageFile(
 
         warped.release()
         rotated.release()
+
+        onProgress?.invoke("Finalizing results...")
         onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers))
     }
 }
@@ -330,7 +338,8 @@ fun processAnswerSheetWithEnsembleHybrid(
     context: Context,
     warped: Mat,
     qrData: QRCodeData?,
-    finalAnswers: MutableList<DetectedAnswer>
+    finalAnswers: MutableList<DetectedAnswer>,
+    onProgress: ((String) -> Unit)? = null
 ) {
     // Define the sweep from Normal (index 0) to Edge Case (index 4)
     // Note: blockSize is incremented by 8 each step to ensure it remains an odd number
@@ -344,7 +353,9 @@ fun processAnswerSheetWithEnsembleHybrid(
 
     val allScans = mutableListOf<List<DetectedAnswer>>()
 
-    for (params in parameterSweep) {
+    for ((index, params) in parameterSweep.withIndex()) {
+        onProgress?.invoke("Ensemble check ${index + 1} of 5...")
+
         val scanAnswers = mutableListOf<DetectedAnswer>()
 
         // 1. Create a uniquely thresholded image using the pristine 'warped' image
@@ -361,6 +372,8 @@ fun processAnswerSheetWithEnsembleHybrid(
         thresh.release()
         stepDebugMat.release()
     }
+
+    onProgress?.invoke("Calculating final votes...")
 
     val numQuestions = allScans.first().size
     for (i in 0 until numQuestions) {
