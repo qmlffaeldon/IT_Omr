@@ -28,7 +28,7 @@ object HybridBubbleScanner {
     // ── Tunables ────────────────────────────────────────────────────────────────
 
     /** Bubble must occupy at least this fraction of (gridCellW × gridCellH) to be a candidate */
-    private const val MIN_BUBBLE_AREA_RATIO = 0.05
+    private const val MIN_BUBBLE_AREA_RATIO = 0.17
 
     /** Bubble must occupy at most this fraction — keeps out large blobs / noise */
     private const val MAX_BUBBLE_AREA_RATIO = 0.85
@@ -39,7 +39,7 @@ object HybridBubbleScanner {
 
     /** How close (in pixels, in col-ROI space) a contour centre must be to the expected
      *  grid centre to count as "this bubble" and not stray noise */
-    private const val MAX_SNAP_DISTANCE_FRACTION = 0.55  // fraction of gridCellH
+    private const val MAX_SNAP_DISTANCE_FRACTION = 0.45  // fraction of gridCellH
 
     // ── Public entry point ───────────────────────────────────────────────────────
 
@@ -132,7 +132,7 @@ object HybridBubbleScanner {
 
         return contours.mapNotNull { c ->
             val area = Imgproc.contourArea(c)
-            if (area < minArea || area > maxArea) return@mapNotNull null
+            if (area !in minArea..maxArea) return@mapNotNull null
 
             val rect = Imgproc.boundingRect(c)
             val aspect = rect.width.toDouble() / rect.height.toDouble()
@@ -176,18 +176,10 @@ object HybridBubbleScanner {
 
         val roi = colMat.submat(ry1, ry2, rx1, rx2)
 
-        val filledPixels   = Core.countNonZero(roi)
-        val densityRatio   = filledPixels.toDouble() / roi.total()
-
-        val innerContours  = mutableListOf<MatOfPoint>()
-        Imgproc.findContours(
-            roi.clone(), innerContours, Mat(),
-            Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
-        )
-        val maxContourArea = innerContours.maxOfOrNull { Imgproc.contourArea(it) } ?: 0.0
-        val contourRatio   = maxContourArea / roi.total()
+        val filledPixels = Core.countNonZero(roi)
+        val densityRatio = filledPixels.toDouble() / roi.total()
 
         roi.release()
-        return densityRatio + contourRatio
+        return densityRatio
     }
 }

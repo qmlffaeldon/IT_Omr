@@ -15,12 +15,22 @@ import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
 import androidx.core.graphics.createBitmap
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.max
 
 const val DEBUG_DRAW = true
 // Data class for Real-Time UI Feedback
 data class ScanFeedback(
     val corners: List<PointF>?, // Normalized 0..1
     val isSkewed: Boolean
+)
+data class OMRParams(
+    val cValue: Double,
+    val blockSize: Int, // Must always be an odd number
+    val hardMinMark: Double,
+    val invalidThreshold: Double,
+    val dominanceRatio: Double
 )
 
 /* ====================== ANALYZER CLASS ====================== */
@@ -92,7 +102,7 @@ class OpenCVAnalyzer(
             if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
             val detectedAnswers = mutableListOf<DetectedAnswer>()
-            processAnswerSheetWithEnsembleHybrid(context, warped, qrData, detectedAnswers)
+            processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers)
 
             detectedAnswers.forEach { Log.d("OMR", it.toString()) }
 
@@ -132,12 +142,9 @@ fun analyzeImageFile(
         } else {
             rotated
         }
-
-        onProgress?.invoke("Detecting QR Code...")
         val qrRawData = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
         val qrData = parseQRCodeData(qrRawData)
 
-        onProgress?.invoke("Cropping and warping image...")
         val warped = detectAndWarpSheet(finalMat)
         finalMat.release()
 
@@ -163,7 +170,7 @@ fun analyzeImageFile(
 
         // VALIDATE: Check if sheet is blank
         onProgress?.invoke("Validating answer sheet...")
-       val validation = validateAnswerSheet(
+        val validation = validateAnswerSheet(
             thresh = thresh,
             qrData = qrData,
             minFilledBubbles = 3
@@ -180,12 +187,10 @@ fun analyzeImageFile(
         val detectedAnswers = mutableListOf<DetectedAnswer>()
 
 
-        processAnswerSheetWithEnsembleHybrid(context, warped, qrData, detectedAnswers)
+        processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers)
 
         warped.release()
         rotated.release()
-
-        onProgress?.invoke("Finalizing results...")
         onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers))
     }
 }
@@ -230,7 +235,7 @@ fun thresholdForOMR(context: Context, src: Mat, cValue: Double, blockSize: Int):
     return thresh
 }
 
-fun processAnswerSheetHybrid(
+fun processAnswerSheetWithQRData(
     context: Context,
     thresh: Mat,
     debugMat: Mat,
@@ -238,53 +243,203 @@ fun processAnswerSheetHybrid(
     answers: MutableList<DetectedAnswer>,
     params: OMRParams
 ) {
-    val columns     = ExamConfigurations.getColumnsForTestType(qrData?.testType)
-    val questions   = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
-    val testNumbers = ExamConfigurations.getTestNumbersForTestType(qrData?.testType)
-    val choices     = 4
+    val columns   = ExamConfigurations.getColumnsForTestType(qrData?.testType)
+    val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
+    val choices   = 4
 
-    Log.d("OMR", "[HYBRID] test=${qrData?.testType ?: "DEFAULT"} cols=${columns.size} q=$questions")
+    Log.d("OMR", "Processing with test type: ${qrData?.testType ?: "DEFAULT"}")
+    Log.d("OMR", "Using ${columns.size} columns with $questions questions each")
 
     for ((columnIndex, col) in columns.withIndex()) {
         val imgH = thresh.rows()
-        val imgW = thresh.cols()
+        val imgW  = thresh.cols()
 
         val xStart = (imgW * col.startx).toInt().coerceIn(0, imgW - 1)
         val xEnd   = (xStart + imgW * col.width).toInt().coerceIn(xStart + 1, imgW)
         val yStart = (imgH * col.starty).toInt().coerceIn(0, imgH - 1)
         val yEnd   = (yStart + imgH * col.height).toInt().coerceIn(yStart + 1, imgH)
 
-        val colMat = thresh.submat(yStart, yEnd, xStart, xEnd)
+        val colMat  = thresh.submat(yStart, yEnd, xStart, xEnd)
+        val qHeight = colMat.rows() / questions
+        val cWidth  = colMat.cols() / choices
 
-        // ── Hybrid scan ───────────────────────────────────────────────────────
-        val cells = HybridBubbleScanner.scanColumn(
-            colMat    = colMat,
-            questions = questions,
-            choices   = choices,
-            debugTag  = col.name
-        )
-        // cells is a flat list: row-major order  (q=0,c=0), (q=0,c=1), …, (q=24,c=3)
-
-        // ── Per-question decision (same logic as original) ────────────────────
         for (q in 0 until questions) {
-            val fill = DoubleArray(choices) { c ->
-                cells.first { it.row == q && it.col == c }.fillScore
+            val fill      = DoubleArray(choices)
+            val strayMark = BooleanArray(choices)
+
+            for (c in 0 until choices) {
+                val padX = (cWidth  * 0.15).toInt()
+                val padY = (qHeight * 0.10).toInt()
+
+                val centerY = ((q + 0.5) * qHeight).toInt()
+                val y1 = (centerY - qHeight * 0.35).toInt()
+                val y2 = (centerY + qHeight * 0.35).toInt()
+                val x1 = c * cWidth
+                val x2 = minOf((c + 1) * cWidth, colMat.cols())
+
+                if (y2 <= y1 || x2 <= x1) continue
+
+                val rx1 = (x1 + padX).coerceAtLeast(0)
+                val ry1 = (y1 + padY).coerceAtLeast(0)
+                val rx2 = (x2 - padX).coerceAtMost(colMat.cols())
+                val ry2 = (y2 - padY).coerceAtMost(colMat.rows())
+
+                if (rx2 <= rx1 || ry2 <= ry1) continue
+
+                // ── Existing ellipse-masked fill score (UNCHANGED) ────────────
+                val roi  = colMat.submat(ry1, ry2, rx1, rx2)
+                val mask = Mat.zeros(roi.size(), CvType.CV_8UC1)
+                Imgproc.ellipse(
+                    mask,
+                    Point(roi.cols() / 2.0, roi.rows() / 2.0),
+                    Size(roi.cols() * 0.28, roi.rows() * 0.28),
+                    0.0, 0.0, 360.0,
+                    Scalar(255.0), -1
+                )
+
+                val masked = Mat()
+                Core.bitwise_and(roi, mask, masked)
+
+                val filledPixels   = Core.countNonZero(masked)
+                val maskArea       = Core.countNonZero(mask).coerceAtLeast(1)
+                val areaRatio      = filledPixels.toDouble() / maskArea
+
+                val contours = mutableListOf<MatOfPoint>()
+                Imgproc.findContours(
+                    masked.clone(), contours, Mat(),
+                    Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
+                )
+                val maxContourArea = contours.maxOfOrNull { Imgproc.contourArea(it) } ?: 0.0
+
+                fill[c] = areaRatio + (maxContourArea / maskArea)
+
+                masked.release()
+                mask.release()
+
+                // ── IMPROVED STRAY MARK DETECTION ─────────────────────────────
+                // Adaptive thresholds based on cell width
+                // ── IMPROVED STRAY MARK DETECTION ─────────────────────────────
+                val minLineLength = max(6, (cWidth * 0.20).toInt()).toDouble()   // slightly shorter
+                val maxLineGap    = max(3, (cWidth * 0.08).toInt()).toDouble()   // allow larger gaps
+                val houghThreshold = 8  // even more sensitive
+
+// Broaden the fill range where we suspect a correction mark
+                val strayFloor = params.hardMinMark * 0.2
+                val strayMax   = params.hardMinMark * 10.0   // now catches quite dark marks
+
+                var hasDiagonalLine = false
+                var isFragmented = false
+
+                if (fill[c] in strayFloor..strayMax) {
+                    // --- Line detection (HoughLinesP) ---
+                    val lines = Mat()
+                    Imgproc.HoughLinesP(
+                        roi,
+                        lines,
+                        1.0,
+                        Math.PI / 180.0,
+                        houghThreshold,
+                        minLineLength,
+                        maxLineGap
+                    )
+                    for (i in 0 until lines.rows()) {
+                        val pts      = lines.get(i, 0)
+                        val dx       = pts[2] - pts[0]
+                        val dy       = pts[3] - pts[1]
+                        val angleDeg = Math.toDegrees(atan2(abs(dy), abs(dx)))
+                        if (angleDeg in 15.0..75.0) {   // widened angle range
+                            hasDiagonalLine = true
+                            break
+                        }
+                    }
+                    lines.release()
+
+                    // --- Fragmentation check (contour analysis) ---
+                    if (!hasDiagonalLine) {
+                        // Find contours in the ROI (already thresholded)
+                        val contours = mutableListOf<MatOfPoint>()
+                        val hierarchy = Mat()
+                        val roiCopy = roi.clone()   // findContours modifies the image
+                        Imgproc.findContours(roiCopy, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+                        roiCopy.release()
+                        hierarchy.release()
+
+                        if (contours.isNotEmpty()) {
+                            // Compute total area of all contours
+                            val totalArea = contours.sumOf { Imgproc.contourArea(it) }
+                            // Find the largest contour area
+                            val maxArea = contours.maxOfOrNull { Imgproc.contourArea(it) } ?: 0.0
+
+                            // Fragmentation: largest contour covers less than 70% of total area
+                            // and total area is significant (avoid tiny noise)
+                            if (totalArea > (maskArea * 0.15) && maxArea / totalArea < 0.7) {
+                                isFragmented = true
+                            }
+                        }
+                        contours.forEach { it.release() }
+                    }
+                }
+
+                strayMark[c] = hasDiagonalLine || isFragmented
+
+                if (strayMark[c]) {
+                    Log.d("OMR", "${col.name} Q${q + 1} C$c → stray mark detected " +
+                            "(fill=${"%.3f".format(fill[c])}, line=$hasDiagonalLine, frag=$isFragmented)")
+                }
+
+                roi.release()
             }
 
-            val ranked = fill.mapIndexed { i, v -> i to v }.sortedByDescending { it.second }
-            val best   = ranked[0]
-            val second = ranked[1]
+            // ── Scoring helpers
+            val ranked     = fill.mapIndexed { i, v -> i to v }.sortedByDescending { it.second }
+            val best       = ranked[0]
+            val second     = ranked[1]
 
-            // Use the dynamic parameters passed into the function
+            val rowTotal      = fill.sum()
+            val winnerMargin  = best.second - second.second
+            val winnerShare   = if (rowTotal > 0.0) best.second / rowTotal else 0.0
+
+            val rowTotalMin     = params.hardMinMark * 2.8
+            val minWinnerMargin = params.hardMinMark * 0.35
+            val minWinnerShare  = 0.42
+
+            // Stray flags (with guard against blank rows)
+            val bestCellHasStray  = strayMark[best.first] &&
+                    best.second >= params.hardMinMark
+            val otherCellHasStray = strayMark
+                .filterIndexed { i, _ -> i != best.first }
+                .any { it } && best.second >= params.hardMinMark
+
+            // Faint double‑bubble ratio (unchanged)
+            val dualAbsThreshold  = params.hardMinMark * 0.5   // was 0.65
+            val isFaintDoubleBubble =
+                best.second   >= params.hardMinMark  &&
+                        second.second >= dualAbsThreshold    &&
+                        (second.second / best.second) > 0.35   // was 0.40
+
             val detectedValue = when {
+                rowTotal < rowTotalMin -> -1
                 best.second < params.hardMinMark -> -1
-
+                winnerMargin < minWinnerMargin &&
+                        best.second < (params.hardMinMark * 2.0) -> -1
+                winnerShare < minWinnerShare &&
+                        best.second < (params.hardMinMark * 2.5) -> -1
+                bestCellHasStray -> -2
+                otherCellHasStray -> -2
+                isFaintDoubleBubble -> -2
                 second.second > params.invalidThreshold &&
                         second.second > (best.second * params.dominanceRatio) -> -2
-
                 else -> best.first + 1
             }
 
+            if (detectedValue == -2) {
+                Log.d("OMR", "${col.name} Q${q + 1} → DOUBLE/INVALID " +
+                        "best=${best.second.fmt()} second=${second.second.fmt()} " +
+                        "bestStray=$bestCellHasStray otherStray=$otherCellHasStray " +
+                        "faintDouble=$isFaintDoubleBubble")
+            }
+
+            val testNumbers    = ExamConfigurations.getTestNumbersForTestType(qrData?.testType)
             val realTestNumber = testNumbers.getOrElse(columnIndex) { columnIndex + 1 }
 
             answers.add(
@@ -295,60 +450,67 @@ fun processAnswerSheetHybrid(
                 )
             )
 
-            val labels  = listOf("A", "B", "C", "D")
-            val bestStr = String.format(java.util.Locale.US, "%.3f", best.second)
-            val secStr  = String.format(java.util.Locale.US, "%.3f", second.second)
-            Log.d("OMR_DEBUG", "[HYBRID] ${col.name} Q${q+1} | best=$bestStr (${labels[best.first]}) 2nd=$secStr (${labels[second.first]}) → $detectedValue")
+            Log.d("OMR", "${col.name} Q${q + 1} → $detectedValue")
 
-            // ── Debug overlay ─────────────────────────────────────────────────
+            // ── Debug drawing (UNCHANGED) ─────────────────────────────────────
             if (detectedValue in 1..4) {
-                // Use the contour-corrected centre for the debug dot
-                val cell = cells.first { it.row == q && it.col == detectedValue - 1 }
-                val cx   = xStart + cell.center.x
-                val cy   = yStart + cell.center.y
-                val color = if (cell.fromContour) Scalar(0.0, 255.0, 0.0) else Scalar(0.0, 0.0, 255.0)
-                // Green dot = contour-anchored  |  Red dot = grid-fallback
-                Imgproc.circle(debugMat, Point(cx, cy), 10, color, 3)
+                val cx = xStart + (detectedValue - 1) * cWidth + cWidth / 2
+                val cy = yStart + q * qHeight + qHeight / 2
+                Imgproc.circle(
+                    debugMat,
+                    Point(cx.toDouble(), cy.toDouble()),
+                    10, Scalar(0.0, 0.0, 255.0), 3
+                )
+            }
+
+            Imgproc.rectangle(
+                debugMat,
+                Point(xStart.toDouble(), yStart.toDouble()),
+                Point(xEnd.toDouble(), yEnd.toDouble()),
+                Scalar(255.0, 0.0, 0.0), 2
+            )
+            for (i in 0..questions) {
+                val y = yStart + i * qHeight
+                Imgproc.line(
+                    debugMat,
+                    Point(xStart.toDouble(), y.toDouble()),
+                    Point(xEnd.toDouble(),   y.toDouble()),
+                    Scalar(0.0, 255.0, 0.0), 1
+                )
+            }
+            for (i in 0..choices) {
+                val x = xStart + i * cWidth
+                Imgproc.line(
+                    debugMat,
+                    Point(x.toDouble(), yStart.toDouble()),
+                    Point(x.toDouble(), yEnd.toDouble()),
+                    Scalar(0.0, 255.0, 255.0), 1
+                )
             }
         }
-
-        // Draw column bounding box on debug mat (same as original)
-        Imgproc.rectangle(
-            debugMat,
-            Point(xStart.toDouble(), yStart.toDouble()),
-            Point(xEnd.toDouble(),   yEnd.toDouble()),
-            Scalar(255.0, 0.0, 0.0), 2
-        )
 
         colMat.release()
     }
 
-    if (DEBUG_DRAW) saveDebugMat(context, debugMat, "04_detected_hybrid")
+    if (DEBUG_DRAW) saveDebugMat(context, debugMat, "04_detected")
 }
 
-data class OMRParams(
-    val cValue: Double,
-    val blockSize: Int, // Must always be an odd number
-    val hardMinMark: Double,
-    val invalidThreshold: Double,
-    val dominanceRatio: Double
-)
+// Tiny extension for readable log lines
+private fun Double.fmt() = "%.3f".format(this)
 
-fun processAnswerSheetWithEnsembleHybrid(
+fun processAnswerSheetWithEnsemble(
     context: Context,
     warped: Mat,
     qrData: QRCodeData?,
     finalAnswers: MutableList<DetectedAnswer>,
     onProgress: ((String) -> Unit)? = null
 ) {
-    // Define the sweep from Normal (index 0) to Edge Case (index 4)
-    // Note: blockSize is incremented by 8 each step to ensure it remains an odd number
     val parameterSweep = listOf(
-        OMRParams(cValue = 15.0, blockSize = 69,  hardMinMark = 0.050, invalidThreshold = 0.200, dominanceRatio = 0.300),
-        OMRParams(cValue = 28.5, blockSize = 77,  hardMinMark = 0.038, invalidThreshold = 0.153, dominanceRatio = 0.225),
-        OMRParams(cValue = 42.0, blockSize = 85,  hardMinMark = 0.02, invalidThreshold = 0.05, dominanceRatio = 0.01),
-        OMRParams(cValue = 55.5, blockSize = 93,  hardMinMark = 0.001, invalidThreshold = 0.002, dominanceRatio = 0.005),
-        OMRParams(cValue = 69.0, blockSize = 101, hardMinMark = 0.000, invalidThreshold = 0.0015, dominanceRatio = 0.003)
+        OMRParams(cValue = 15.0, blockSize = 69,  hardMinMark = 0.08, invalidThreshold = 0.25, dominanceRatio = 0.65),
+        OMRParams(cValue = 22.0, blockSize = 75,  hardMinMark = 0.06, invalidThreshold = 0.22, dominanceRatio = 0.62),
+        OMRParams(cValue = 30.0, blockSize = 75,  hardMinMark = 0.05, invalidThreshold = 0.20, dominanceRatio = 0.60),
+        OMRParams(cValue = 38.0, blockSize = 75,  hardMinMark = 0.04, invalidThreshold = 0.18, dominanceRatio = 0.58),
+        OMRParams(cValue = 46.0, blockSize = 77,  hardMinMark = 0.003, invalidThreshold = 0.005, dominanceRatio = 0.25)
     )
 
     val allScans = mutableListOf<List<DetectedAnswer>>()
@@ -356,41 +518,88 @@ fun processAnswerSheetWithEnsembleHybrid(
     for ((index, params) in parameterSweep.withIndex()) {
         onProgress?.invoke("Ensemble check ${index + 1} of 5...")
 
-        val scanAnswers = mutableListOf<DetectedAnswer>()
-
-        // 1. Create a uniquely thresholded image using the pristine 'warped' image
-        val thresh = thresholdForOMR(context, warped, params.cValue, params.blockSize)
-
-        // 2. Clone the pristine image specifically for this step's debug drawing
+        val scanAnswers  = mutableListOf<DetectedAnswer>()
+        val thresh       = thresholdForOMR(context, warped, params.cValue, params.blockSize)
         val stepDebugMat = warped.clone()
 
-        // 3. Scan the image and draw on the clone, NOT the original
-        processAnswerSheetHybrid(context, thresh, stepDebugMat, qrData, scanAnswers, params)
+        processAnswerSheetWithQRData(context, thresh, stepDebugMat, qrData, scanAnswers, params)
         allScans.add(scanAnswers)
 
-        // 4. Release both mats to prevent memory leaks
         thresh.release()
         stepDebugMat.release()
     }
 
-    onProgress?.invoke("Calculating final votes...")
+    // Dedicated stray-mark pass
+    onProgress?.invoke("Stray mark check...")
+    val strayParams = OMRParams(
+        cValue           = 25.0,
+        blockSize        = 101,
+        hardMinMark      = 0.03,
+        invalidThreshold = 0.15,
+        dominanceRatio   = 0.45
+    )
+    val strayAnswers  = mutableListOf<DetectedAnswer>()
+    val strayThresh   = thresholdForOMR(context, warped, strayParams.cValue, strayParams.blockSize)
+    val strayDebugMat = warped.clone()
+    processAnswerSheetWithQRData(context, strayThresh, strayDebugMat, qrData, strayAnswers, strayParams)
+    strayThresh.release()
+    strayDebugMat.release()
 
     val numQuestions = allScans.first().size
     for (i in 0 until numQuestions) {
-        val votes = allScans.map { it[i].detected }
+        val votes        = allScans.map { it[i].detected }
+        val strayVote    = strayAnswers.getOrNull(i)?.detected
+        val sweepInvalid = votes.count { it == -2 }
+
+        val validVotes = votes.filter { it > 0 }
+        val uniqueResults = validVotes.distinct()
+        val mostCommonValid = validVotes
+            .groupingBy { it }
+            .eachCount()
+            .maxByOrNull { it.value }
+            ?.key
+        val validConsensus = if (mostCommonValid != null) validVotes.count { it == mostCommonValid } else 0
+
+        val hasAnyInvalid = sweepInvalid > 0
+        val hasStrayInvalid = strayVote == -2
+        val hasValidAnswer = validVotes.isNotEmpty()
+        val conflictingValidAnswers = uniqueResults.size > 1
+        val blankVotes = votes.count { it == -1 }
 
         val finalVote = when {
-            votes.count { it == -2 } > allScans.size / 2 -> -2
-            else -> {
-                val validVotes    = votes.filter { it >= 0 }
-                val uniqueResults = validVotes.distinct()
-                when {
-                    validVotes.isEmpty()    -> -1
-                    uniqueResults.size > 1  -> -2
-                    else                   -> uniqueResults.first()
-                }
-            }
+            // PRIORITY 1: Strong valid consensus (≥3 votes) overrides everything except majority invalid
+            validConsensus >= 3 && sweepInvalid <= 2 -> mostCommonValid!!
+
+            // PRIORITY 2: Stray pass found correction but only if it's supported by multiple sweeps
+            hasStrayInvalid && hasValidAnswer && validConsensus < 3 -> -2
+
+            // PRIORITY 3: Any invalid sweep + conflicting valid interpretations → invalid
+            hasAnyInvalid && conflictingValidAnswers -> -2
+
+            // PRIORITY 4: Any invalid sweep and the valid votes don't all agree
+            hasAnyInvalid && hasValidAnswer && validConsensus < (allScans.size - sweepInvalid) -> -2
+
+            // PRIORITY 5: Majority invalid from sweep → invalid
+            sweepInvalid > allScans.size / 2 -> -2
+
+            // PRIORITY 6: No valid marks at all → blank
+            validVotes.isEmpty() -> -1
+
+            // PRIORITY 7: Blank majority + weak valid consensus → blank
+            blankVotes >= 3 && validConsensus <= 2 -> -1
+
+            // PRIORITY 8: Multiple different valid answers without strong consensus → invalid
+            uniqueResults.size > 1 -> -2
+
+            // PRIORITY 9: Fallback → blank
+            else -> -1
         }
+
+        Log.d(
+            "OMR_ENSEMBLE",
+            "Q${i + 1} votes=$votes strayVote=$strayVote sweepInvalid=$sweepInvalid " +
+                    "validVotes=$validVotes consensus=$validConsensus unique=$uniqueResults → $finalVote"
+        )
 
         finalAnswers.add(
             DetectedAnswer(
