@@ -1,4 +1,4 @@
-package com.example.it_scann
+package com.example.it_scann.database
 
 import androidx.room.Embedded
 import androidx.room.Entity

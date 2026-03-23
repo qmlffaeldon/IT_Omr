@@ -21,7 +21,7 @@
         app:layout_constraintWidth_percent="1"
         app:scaleType="fitCenter" />
 
-    <com.example.it_scann.DocumentOverlayView
+    <com.example.it_scann.controllers.DocumentOverlayView
         android:id="@+id/overlayView"
         android:layout_width="0dp"
         android:layout_height="0dp"

@@ -1,4 +1,4 @@
-package com.example.it_scann
+package com.example.it_scann.database
 
 import android.content.Context
 import androidx.room.Database

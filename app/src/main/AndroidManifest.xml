@@ -18,15 +18,11 @@
         android:supportsRtl="false"
         android:theme="@style/Theme.IT_Scan">
         <activity
-            android:name=".Answer_key"
-            android:exported="false"
-            android:theme="@style/Theme.IT_Scan" />
-        <activity
-            android:name=".CameraScan"
+            android:name=".controllers.CameraScanActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
         <activity
-            android:name=".MainActivity"
+            android:name=".controllers.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.app.SplashScreen">
             <intent-filter>

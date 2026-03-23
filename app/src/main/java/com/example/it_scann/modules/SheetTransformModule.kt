@@ -1,6 +1,7 @@
-package com.example.it_scann
+package com.example.it_scann.modules
 
 import android.util.Log
+import com.example.it_scann.grading.ExamConfigurations
 import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint

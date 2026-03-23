@@ -1,13 +1,13 @@
-package com.example.it_scann
+package com.example.it_scann.modules
 
 import android.content.Context
 import android.net.Uri
 import androidx.camera.core.ImageProxy
+import androidx.exifinterface.media.ExifInterface
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
-import java.nio.ByteBuffer
 
 fun ImageProxy.toMat(): Mat {
     val yBuffer = planes[0].buffer
@@ -47,24 +47,24 @@ fun rotateMatIfNeeded(src: Mat, rotation: Int): Mat {
 
 fun rotateBitmapIfNeeded(context: Context, uri: Uri, mat: Mat): Mat {
     val input = context.contentResolver.openInputStream(uri) ?: return mat
-    val exif = androidx.exifinterface.media.ExifInterface(input)
+    val exif = ExifInterface(input)
     input.close()
 
     val orientation = exif.getAttributeInt(
-        androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
-        androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL
+        ExifInterface.TAG_ORIENTATION,
+        ExifInterface.ORIENTATION_NORMAL
     )
 
     val rotated = Mat()
 
     when (orientation) {
-        androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 ->
+        ExifInterface.ORIENTATION_ROTATE_90 ->
             Core.rotate(mat, rotated, Core.ROTATE_90_CLOCKWISE)
 
-        androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 ->
+        ExifInterface.ORIENTATION_ROTATE_180 ->
             Core.rotate(mat, rotated, Core.ROTATE_180)
 
-        androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 ->
+        ExifInterface.ORIENTATION_ROTATE_270 ->
             Core.rotate(mat, rotated, Core.ROTATE_90_COUNTERCLOCKWISE)
 
         else -> {

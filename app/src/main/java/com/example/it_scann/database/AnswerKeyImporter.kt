@@ -1,7 +1,8 @@
-package com.example.it_scann
+package com.example.it_scann.database
 
 import android.content.Context
 import android.net.Uri
+import org.apache.poi.ss.usermodel.CellType
 import org.apache.poi.ss.usermodel.Row
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import java.io.InputStream
@@ -58,16 +59,16 @@ object AnswerKeyImporter {
     }
 
     // Reads any cell type as a String safely
-    private fun getCellAsString(row: org.apache.poi.ss.usermodel.Row, index: Int): String? {
+    private fun getCellAsString(row: Row, index: Int): String? {
         val cell = row.getCell(index) ?: return null
         return when (cell.cellType) {
-            org.apache.poi.ss.usermodel.CellType.STRING  -> cell.stringCellValue.trim()
-            org.apache.poi.ss.usermodel.CellType.NUMERIC -> {
+            CellType.STRING  -> cell.stringCellValue.trim()
+            CellType.NUMERIC -> {
                 // Avoid "1.0" for whole numbers
                 val num = cell.numericCellValue
                 if (num == floor(num)) num.toInt().toString() else num.toString()
             }
-            org.apache.poi.ss.usermodel.CellType.BLANK   -> null
+            CellType.BLANK   -> null
             else -> null
         }
     }

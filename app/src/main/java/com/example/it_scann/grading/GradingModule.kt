@@ -1,6 +1,9 @@
-package com.example.it_scann
+package com.example.it_scann.grading
 
 import android.util.Log
+import com.example.it_scann.database.AnswerKeyDao
+import com.example.it_scann.modules.DetectedAnswer
+import kotlin.collections.iterator
 
 suspend fun compareWithAnswerKey(
     detected: List<DetectedAnswer>,

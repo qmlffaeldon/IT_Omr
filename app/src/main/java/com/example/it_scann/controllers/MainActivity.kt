@@ -1,4 +1,4 @@
-package com.example.it_scann
+package com.example.it_scann.controllers
 
 import android.content.ContentValues
 import android.content.Context
@@ -16,6 +16,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.lifecycleScope
+import com.example.it_scann.database.AnswerKeyImporter
+import com.example.it_scann.database.AppDatabase
+import com.example.it_scann.grading.ExamConfigurations
+import com.example.it_scann.database.ExamWithElements
+import com.example.it_scann.R
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -36,7 +41,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btn_scan).setOnClickListener {
             Log.d("MainActivity", "Scan button clicked")
-            startActivity(Intent(this, CameraScan::class.java))
+            startActivity(Intent(this, CameraScanActivity::class.java))
         }
 
         findViewById<Button>(R.id.btn_answers).setOnClickListener {
@@ -48,7 +53,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_results).setOnClickListener {
             Log.d("MainActivity", "Exam Results clicked")
             lifecycleScope.launch {
-                val db = AppDatabase.getDatabase(this@MainActivity)
+                val db = AppDatabase.Companion.getDatabase(this@MainActivity)
                 val exams = db.answerKeyDao().getAllExamsWithElements()
                 exportBatchToCSV(this@MainActivity, exams)
             }
@@ -61,7 +66,7 @@ class MainActivity : AppCompatActivity() {
     ) { uri ->
         uri?.let {
             lifecycleScope.launch {
-                val db = AppDatabase.getDatabase(this@MainActivity)
+                val db = AppDatabase.Companion.getDatabase(this@MainActivity)
                 val result = AnswerKeyImporter.importFromUri(this@MainActivity, it, db.answerKeyDao())
 
                 if (result.success) {

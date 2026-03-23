@@ -1,4 +1,4 @@
-package com.example.it_scann
+package com.example.it_scann.modules
 import android.content.Context
 import android.util.Log
 import org.opencv.core.*

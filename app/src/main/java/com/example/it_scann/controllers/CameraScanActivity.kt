@@ -1,4 +1,4 @@
-package com.example.it_scann
+package com.example.it_scann.controllers
 
 import android.Manifest
 import android.content.ContentValues
@@ -25,27 +25,38 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.lifecycle.lifecycleScope
 import org.opencv.android.OpenCVLoader
 import java.util.concurrent.Executors
-import com.example.it_scann.analyzeImageFile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textview.MaterialTextView
 import android.view.MotionEvent
 import androidx.camera.core.FocusMeteringAction
-import androidx.camera.core.MeteringPointFactory
 import java.util.concurrent.TimeUnit
 
 import android.content.Context
+import android.net.Uri
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.inputmethod.EditorInfo
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.widget.addTextChangedListener
+import com.example.it_scann.database.AppDatabase
+import com.example.it_scann.modules.CameraAnalyzer
+import com.example.it_scann.modules.DetectedAnswer
+import com.example.it_scann.database.ElementScoreEntity
+import com.example.it_scann.grading.ExamConfigurations
+import com.example.it_scann.database.ExamResultsEntity
+import com.example.it_scann.modules.QRCodeData
+import com.example.it_scann.R
+import com.example.it_scann.modules.ValidationFailReason
+import com.example.it_scann.modules.analyzeImageFile
+import com.example.it_scann.grading.compareWithAnswerKey
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-class CameraScan : AppCompatActivity() {
+class CameraScanActivity : AppCompatActivity() {
 
     private lateinit var topCard: CardView
     private lateinit var bottomCard: CardView
@@ -124,22 +135,22 @@ class CameraScan : AppCompatActivity() {
             showManualAbsenteeDialog(this) { absenteesList ->
                 lifecycleScope.launch {
                     try {
-                        val db = AppDatabase.getDatabase(this@CameraScan)
+                        val db = AppDatabase.Companion.getDatabase(this@CameraScanActivity)
 
                         // Loop through the list and save each as an absent entity
                         for (seat in absenteesList) {
                             val absentResult = ExamResultsEntity(
-                                examCode   = lastScannedExamCode,
-                                setNumber  = lastScannedSetNumber,
+                                examCode = lastScannedExamCode,
+                                setNumber = lastScannedSetNumber,
                                 seatNumber = seat,
                                 totalScore = 0,
-                                isAbsent   = true
+                                isAbsent = true
                             )
                             db.answerKeyDao().insertExamResult(absentResult)
                         }
 
                         // Show Success Feedback
-                        AlertDialog.Builder(this@CameraScan)
+                        AlertDialog.Builder(this@CameraScanActivity)
                             .setTitle("Absentees Saved ✓")
                             .setMessage("${absenteesList.size} absentees saved for $lastScannedExamCode (Set $lastScannedSetNumber).\n\nSeats: $absenteesList")
                             .setPositiveButton("OK", null)
@@ -147,7 +158,7 @@ class CameraScan : AppCompatActivity() {
 
                     } catch (e: Exception) {
                         Log.e("OMR", "Failed to save manual absentees", e)
-                        AlertDialog.Builder(this@CameraScan)
+                        AlertDialog.Builder(this@CameraScanActivity)
                             .setTitle("Save Failed")
                             .setMessage("Could not save absentees: ${e.message}")
                             .setPositiveButton("OK", null)
@@ -203,8 +214,8 @@ class CameraScan : AppCompatActivity() {
         }
     }
     private val galleryLauncher = registerForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { savedUri: android.net.Uri? ->
+        ActivityResultContracts.GetContent()
+    ) { savedUri: Uri? ->
         if (savedUri != null) {
             Log.d("OMR", "Image selected from gallery: $savedUri")
 
@@ -239,6 +250,7 @@ class CameraScan : AppCompatActivity() {
                                             .setPositiveButton("OK", null)
                                             .show()
                                     }
+
                                     ValidationFailReason.BLANK -> {
                                         // Same absent dialog as camera path
                                         AlertDialog.Builder(this)
@@ -247,17 +259,26 @@ class CameraScan : AppCompatActivity() {
                                             .setPositiveButton("Yes, Mark Absent") { _, _ ->
                                                 lifecycleScope.launch {
                                                     try {
-                                                        val db = AppDatabase.getDatabase(this@CameraScan)
+                                                        val db =
+                                                            AppDatabase.Companion.getDatabase(this@CameraScanActivity)
                                                         val absentResult = ExamResultsEntity(
-                                                            examCode   = validation.qrData?.testType   ?: "UNKNOWN",
-                                                            setNumber  = validation.qrData?.setNumber  ?: 1,
-                                                            seatNumber = validation.qrData?.seatNumber ?: 1,
+                                                            examCode = validation.qrData?.testType
+                                                                ?: "UNKNOWN",
+                                                            setNumber = validation.qrData?.setNumber
+                                                                ?: 1,
+                                                            seatNumber = validation.qrData?.seatNumber
+                                                                ?: 1,
                                                             totalScore = 0,
-                                                            isAbsent   = true
+                                                            isAbsent = true
                                                         )
-                                                        db.answerKeyDao().insertExamResult(absentResult)
+                                                        db.answerKeyDao()
+                                                            .insertExamResult(absentResult)
                                                     } catch (e: Exception) {
-                                                        Log.e("OMR", "Failed to save absent result", e)
+                                                        Log.e(
+                                                            "OMR",
+                                                            "Failed to save absent result",
+                                                            e
+                                                        )
                                                     }
                                                 }
                                             }
@@ -265,6 +286,7 @@ class CameraScan : AppCompatActivity() {
                                             .setCancelable(false)
                                             .show()
                                     }
+
                                     ValidationFailReason.VALID -> {}
                                 }
                             }
@@ -281,7 +303,7 @@ class CameraScan : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private val answerKeyDao by lazy {
-        AppDatabase.getDatabase(this).answerKeyDao()
+        AppDatabase.Companion.getDatabase(this).answerKeyDao()
     }
 
     // Change signature
@@ -300,12 +322,12 @@ class CameraScan : AppCompatActivity() {
             val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao, examCode, setNumber)
 
             try {
-                val db = AppDatabase.getDatabase(this@CameraScan)
+                val db = AppDatabase.Companion.getDatabase(this@CameraScanActivity)
                 val totalScore = scores.values.sum()
 
                 val examResult = ExamResultsEntity(
-                    examCode   = examCode,      // ← use examCode field (from entity refactor)
-                    setNumber  = setNumber,
+                    examCode = examCode,      // ← use examCode field (from entity refactor)
+                    setNumber = setNumber,
                     seatNumber = seatNumber,
                     totalScore = totalScore
                 )
@@ -313,10 +335,10 @@ class CameraScan : AppCompatActivity() {
 
                 val elementScores = scores.map { (testNumber, score) ->
                     ElementScoreEntity(
-                        examResultId  = examResultId,
+                        examResultId = examResultId,
                         elementNumber = testNumber,
-                        score         = score,
-                        maxScore      = 25
+                        score = score,
+                        maxScore = 25
                     )
                 }
                 db.answerKeyDao().upsertElementScores(elementScores)
@@ -340,7 +362,7 @@ class CameraScan : AppCompatActivity() {
                 }
 
                 delay(500)
-                AlertDialog.Builder(this@CameraScan)
+                AlertDialog.Builder(this@CameraScanActivity)
                     .setTitle("Results Saved ✓")
                     .setMessage(resultText)
                     .setPositiveButton("OK", null)
@@ -352,7 +374,7 @@ class CameraScan : AppCompatActivity() {
 
             } catch (e: Exception) {
                 Log.e("OMR", "Failed to save results", e)
-                AlertDialog.Builder(this@CameraScan)
+                AlertDialog.Builder(this@CameraScanActivity)
                     .setTitle("Save Failed")
                     .setMessage("Results could not be saved: ${e.message}")
                     .setPositiveButton("OK", null)
@@ -500,7 +522,7 @@ class CameraScan : AppCompatActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST) // "Real-time" mode
                 .build()
 
-            imageAnalysis.setAnalyzer(cameraExecutor, OpenCVAnalyzer(
+            imageAnalysis.setAnalyzer(cameraExecutor, CameraAnalyzer(
                 context = this,
 
                 // Standard OMR Result (Final scan when button is clicked or auto-scan)
@@ -616,7 +638,7 @@ class CameraScan : AppCompatActivity() {
                             }
 
                             analyzeImageFile(
-                                context = this@CameraScan,
+                                context = this@CameraScanActivity,
                                 imageUri = savedUri,
                                 onProgress = { msg -> updateLoadingText(msg) },
                                 onDetected = { result ->
@@ -631,7 +653,7 @@ class CameraScan : AppCompatActivity() {
                                         when (validation.failReason) {
 
                                             ValidationFailReason.NO_SHEET -> {
-                                                AlertDialog.Builder(this@CameraScan)
+                                                AlertDialog.Builder(this@CameraScanActivity)
                                                     .setTitle("Sheet Not Found")
                                                     .setMessage("No answer sheet detected. Please reposition and try again.")
                                                     .setPositiveButton("OK", null)
@@ -640,31 +662,42 @@ class CameraScan : AppCompatActivity() {
                                             }
 
                                             ValidationFailReason.BLANK -> {
-                                                AlertDialog.Builder(this@CameraScan)
+                                                AlertDialog.Builder(this@CameraScanActivity)
                                                     .setTitle("Blank Answer Sheet")
                                                     .setMessage("No answers detected.\n\nIs this examinee absent?")
                                                     .setPositiveButton("Yes, Mark Absent") { _, _ ->
                                                         lifecycleScope.launch {
                                                             try {
-                                                                val db = AppDatabase.getDatabase(this@CameraScan)
+                                                                val db =
+                                                                    AppDatabase.Companion.getDatabase(
+                                                                        this@CameraScanActivity
+                                                                    )
 
                                                                 // Fall back to safe defaults if QR wasn't readable
-                                                                val examCode   = validation.qrData?.testType   ?: "UNKNOWN"
-                                                                val setNumber  = validation.qrData?.setNumber  ?: 1
-                                                                val seatNumber = validation.qrData?.seatNumber ?: 1
+                                                                val examCode =
+                                                                    validation.qrData?.testType
+                                                                        ?: "UNKNOWN"
+                                                                val setNumber =
+                                                                    validation.qrData?.setNumber
+                                                                        ?: 1
+                                                                val seatNumber =
+                                                                    validation.qrData?.seatNumber
+                                                                        ?: 1
 
-                                                                val absentResult = ExamResultsEntity(
-                                                                    examCode   = examCode,
-                                                                    setNumber  = setNumber,
-                                                                    seatNumber = seatNumber,
-                                                                    totalScore = 0,
-                                                                    isAbsent   = true
-                                                                )
-                                                                db.answerKeyDao().insertExamResult(absentResult)
+                                                                val absentResult =
+                                                                    ExamResultsEntity(
+                                                                        examCode = examCode,
+                                                                        setNumber = setNumber,
+                                                                        seatNumber = seatNumber,
+                                                                        totalScore = 0,
+                                                                        isAbsent = true
+                                                                    )
+                                                                db.answerKeyDao()
+                                                                    .insertExamResult(absentResult)
                                                                 // No ElementScoreEntity rows — absent students have none
 
                                                                 // Show confirmation then show the same top card feedback
-                                                                AlertDialog.Builder(this@CameraScan)
+                                                                AlertDialog.Builder(this@CameraScanActivity)
                                                                     .setTitle("Marked Absent ✓")
                                                                     .setMessage("Seat $seatNumber has been marked absent.")
                                                                     .setPositiveButton("OK", null)
@@ -672,11 +705,19 @@ class CameraScan : AppCompatActivity() {
 
                                                                 topCard.alpha = 1f
                                                                 topCard.visibility = View.VISIBLE
-                                                                topCard.postDelayed({ fadeOutViews(topCard) }, 3000)
+                                                                topCard.postDelayed({
+                                                                    fadeOutViews(
+                                                                        topCard
+                                                                    )
+                                                                }, 3000)
 
                                                             } catch (e: Exception) {
-                                                                Log.e("OMR", "Failed to save absent result", e)
-                                                                AlertDialog.Builder(this@CameraScan)
+                                                                Log.e(
+                                                                    "OMR",
+                                                                    "Failed to save absent result",
+                                                                    e
+                                                                )
+                                                                AlertDialog.Builder(this@CameraScanActivity)
                                                                     .setTitle("Save Failed")
                                                                     .setMessage("Could not mark as absent: ${e.message}")
                                                                     .setPositiveButton("OK", null)
@@ -690,7 +731,7 @@ class CameraScan : AppCompatActivity() {
                                             }
 
                                             ValidationFailReason.TOO_FEW -> {
-                                                AlertDialog.Builder(this@CameraScan)
+                                                AlertDialog.Builder(this@CameraScanActivity)
                                                     .setTitle("Poor Scan Quality")
                                                     .setMessage(
                                                         "Only ${validation.filledBubbleCount} answer(s) detected.\n\n" +
@@ -701,7 +742,8 @@ class CameraScan : AppCompatActivity() {
                                                     .show()
                                             }
 
-                                            ValidationFailReason.VALID -> { /* won't reach here */ }
+                                            ValidationFailReason.VALID -> { /* won't reach here */
+                                            }
                                         }
                                     }
                                 }

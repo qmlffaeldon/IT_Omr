@@ -1,4 +1,4 @@
-package com.example.it_scann
+package com.example.it_scann.controllers
 
 import android.content.Context
 import android.graphics.Canvas

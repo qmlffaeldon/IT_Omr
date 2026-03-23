@@ -1,6 +1,8 @@
-package com.example.it_scann
+package com.example.it_scann.grading
 
 import android.util.Log
+import com.example.it_scann.modules.Column
+import kotlin.collections.get
 
 
 // ====================== EXAM TYPE CONFIGURATIONS ======================
@@ -42,9 +44,9 @@ object ExamConfigurations {
 
         return elements.mapIndexed { i, name ->
             Column(
-                name   = name,
+                name = name,
                 startx = columnStartX[i],
-                width  = COL_WIDTH,
+                width = COL_WIDTH,
                 starty = COL_STARTY,
                 height = COL_HEIGHT
             )
