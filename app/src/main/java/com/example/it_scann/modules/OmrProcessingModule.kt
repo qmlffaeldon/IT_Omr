@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import org.opencv.android.Utils
 import org.opencv.core.*
 import org.opencv.imgproc.Imgproc
@@ -139,7 +140,8 @@ fun processAnswerSheetWithQRData(
     debugMat: Mat,
     qrData: QRCodeData?,
     answers: MutableList<DetectedAnswer>,
-    params: OMRParams
+    params: OMRParams,
+    sweepName: String // <-- NEW: Identifies which sweep is logging
 ) {
     val columns   = ExamConfigurations.getColumnsForTestType(qrData?.testType)
     val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
@@ -181,34 +183,24 @@ fun processAnswerSheetWithQRData(
 
                 if (rx2 <= rx1 || ry2 <= ry1) continue
 
+                // Extract the rectangular cell (with your padX and padY margins)
                 val roi  = colMat.submat(ry1, ry2, rx1, rx2)
-                val mask = Mat.zeros(roi.size(), CvType.CV_8UC1)
-                Imgproc.ellipse(
-                    mask,
-                    Point(roi.cols() / 2.0, roi.rows() / 2.0),
-                    Size(roi.cols() * 0.28, roi.rows() * 0.28),
-                    0.0, 0.0, 360.0,
-                    Scalar(255.0), -1
-                )
 
-                val masked = Mat()
-                Core.bitwise_and(roi, mask, masked)
-
-                val filledPixels   = Core.countNonZero(masked)
-                val maskArea       = Core.countNonZero(mask).coerceAtLeast(1)
+                // 1. Evaluate the rectangular ROI directly
+                val filledPixels   = Core.countNonZero(roi)
+                val maskArea       = roi.total().toInt().coerceAtLeast(1)
                 val areaRatio      = filledPixels.toDouble() / maskArea
 
+                // 2. Find contours directly on the ROI
                 val contours = mutableListOf<MatOfPoint>()
                 Imgproc.findContours(
-                    masked.clone(), contours, Mat(),
+                    roi.clone(), contours, Mat(),
                     Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
                 )
                 val maxContourArea = contours.maxOfOrNull { Imgproc.contourArea(it) } ?: 0.0
 
+                // 3. Calculate final fill score
                 fill[c] = areaRatio + (maxContourArea / maskArea)
-
-                masked.release()
-                mask.release()
 
                 val minLineLength = max(6, (cWidth * 0.20).toInt()).toDouble()
                 val maxLineGap    = max(3, (cWidth * 0.08).toInt()).toDouble()
@@ -270,7 +262,7 @@ fun processAnswerSheetWithQRData(
             val winnerMargin  = best.second - second.second
             val winnerShare   = if (rowTotal > 0.0) best.second / rowTotal else 0.0
 
-            val rowTotalMin     = params.hardMinMark * 2.8
+            val rowTotalMin     = params.hardMinMark * 1.0
             val minWinnerMargin = params.hardMinMark * 0.35
             val minWinnerShare  = 0.42
 
@@ -299,12 +291,30 @@ fun processAnswerSheetWithQRData(
             val testNumbers    = ExamConfigurations.getTestNumbersForTestType(qrData?.testType)
             val realTestNumber = testNumbers.getOrElse(columnIndex) { columnIndex + 1 }
 
+            // --- NEW: Detailed Metrics Log ---
+            val bestChar = ('A' + best.first)
+            val secondChar = ('A' + second.first)
+            val detStr = when(detectedValue) {
+                -1 -> "BLANK"
+                -2 -> "DOUBLE"
+                else -> ('A' + detectedValue - 1).toString()
+            }
+            Log.d("OMR_METRICS", "[$sweepName] Test $realTestNumber Q${q + 1} -> Det: $detStr | 1st: $bestChar (${best.second.fmt()}), 2nd: $secondChar (${second.second.fmt()})")
+
             answers.add(DetectedAnswer(testNumber = realTestNumber, questionNumber = q + 1, detected = detectedValue))
 
             if (detectedValue in 1..4) {
                 val cx = xStart + (detectedValue - 1) * cWidth + cWidth / 2
                 val cy = yStart + q * qHeight + qHeight / 2
-                Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(0.0, 0.0, 255.0), 3)
+                Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(0.0, 255.0, 0.0), 3)
+            } else if (detectedValue == -2) {
+                for (c in 0 until choices) {
+                    if (fill[c] >= params.hardMinMark) {
+                        val cx = xStart + c * cWidth + cWidth / 2
+                        val cy = yStart + q * qHeight + qHeight / 2
+                        Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(255.0, 0.0, 255.0), 3)
+                    }
+                }
             }
             Imgproc.rectangle(debugMat, Point(xStart.toDouble(), yStart.toDouble()), Point(xEnd.toDouble(), yEnd.toDouble()), Scalar(255.0, 0.0, 0.0), 2)
         }
@@ -319,45 +329,46 @@ fun processAnswerSheetWithEnsemble(
     finalAnswers: MutableList<DetectedAnswer>,
     onProgress: ((String) -> Unit)? = null
 ) {
+    onProgress?.invoke("Applying high-contrast threshold...")
+    val staticCValue = 45.0
+    val staticBlockSize = 85
+    val thresh = thresholdForOMR(context, warped, staticCValue, staticBlockSize)
+
     val parameterSweep = listOf(
-        OMRParams(cValue = 15.0, blockSize = 69,  hardMinMark = 0.08, invalidThreshold = 0.25, dominanceRatio = 0.65),
-        OMRParams(cValue = 22.0, blockSize = 75,  hardMinMark = 0.06, invalidThreshold = 0.22, dominanceRatio = 0.62),
-        OMRParams(cValue = 30.0, blockSize = 75,  hardMinMark = 0.05, invalidThreshold = 0.20, dominanceRatio = 0.60),
-        OMRParams(cValue = 38.0, blockSize = 75,  hardMinMark = 0.04, invalidThreshold = 0.18, dominanceRatio = 0.58),
-        OMRParams(cValue = 46.0, blockSize = 77,  hardMinMark = 0.003, invalidThreshold = 0.005, dominanceRatio = 0.25)
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.05, dominanceRatio = 0.05),
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.10, dominanceRatio = 0.075),
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.15, dominanceRatio = 0.10),
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.20, dominanceRatio = 0.125),
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.25, dominanceRatio = 0.15)
     )
 
     val allScans = mutableListOf<List<DetectedAnswer>>()
 
     for ((index, params) in parameterSweep.withIndex()) {
-        onProgress?.invoke("Ensemble check ${index + 1} of 5...")
+        onProgress?.invoke("Logic sweep ${index + 1} of 5...")
 
         val scanAnswers  = mutableListOf<DetectedAnswer>()
-        val thresh       = thresholdForOMR(context, warped, params.cValue, params.blockSize)
         val stepDebugMat = warped.clone()
 
-        processAnswerSheetWithQRData(context, thresh, stepDebugMat, qrData, scanAnswers, params)
+        // Pass Sweep Name
+        processAnswerSheetWithQRData(context, thresh, stepDebugMat, qrData, scanAnswers, params, "Sweep ${index + 1}")
         allScans.add(scanAnswers)
-
-        thresh.release()
 
         if (DEBUG_DRAW) saveDebugMat(context, stepDebugMat, "04_detected_sweep_$index")
         stepDebugMat.release()
     }
 
-    // Dedicated Stray Mark Check
     onProgress?.invoke("Stray mark check...")
-    val strayParams = OMRParams(cValue = 25.0, blockSize = 101, hardMinMark = 0.03, invalidThreshold = 0.15, dominanceRatio = 0.45)
+    val strayParams = OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.15, dominanceRatio = 0.45)
     val strayAnswers  = mutableListOf<DetectedAnswer>()
-    val strayThresh   = thresholdForOMR(context, warped, strayParams.cValue, strayParams.blockSize)
     val strayDebugMat = warped.clone()
 
-    processAnswerSheetWithQRData(context, strayThresh, strayDebugMat, qrData, strayAnswers, strayParams)
-
-    strayThresh.release()
+    // Pass Sweep Name
+    processAnswerSheetWithQRData(context, thresh, strayDebugMat, qrData, strayAnswers, strayParams, "Stray Check")
 
     if (DEBUG_DRAW) saveDebugMat(context, strayDebugMat, "04_detected_stray")
     strayDebugMat.release()
+    thresh.release()
 
     val numQuestions = allScans.first().size
     for (i in 0 until numQuestions) {
@@ -387,6 +398,17 @@ fun processAnswerSheetWithEnsemble(
             uniqueResults.size > 1 -> -2
             else -> -1
         }
+
+        // --- NEW: Final Ensemble Output Log ---
+        val finalStr = when(finalVote) {
+            -1 -> "BLANK"
+            -2 -> "DOUBLE"
+            else -> ('A' + finalVote - 1).toString()
+        }
+        val voteChars = votes.map { if (it in 1..4) ('A' + it - 1).toString() else it.toString() }
+        val strayChar = if (strayVote != null && strayVote in 1..4) ('A' + strayVote - 1).toString() else strayVote.toString()
+
+        Log.d("OMR_ENSEMBLE", "Test ${allScans.first()[i].testNumber} Q${allScans.first()[i].questionNumber} | Votes: $voteChars | Stray: $strayChar -> FINAL: $finalStr")
 
         finalAnswers.add(
             DetectedAnswer(
