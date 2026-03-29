@@ -207,7 +207,7 @@ fun processAnswerSheetWithQRData(
                 val houghThreshold = 8
 
                 val strayFloor = params.hardMinMark * 0.2
-                val strayMax   = params.hardMinMark * 10.0
+                val strayMax   = params.hardMinMark * 1.5
 
                 var hasDiagonalLine = false
                 var isFragmented = false
@@ -330,8 +330,8 @@ fun processAnswerSheetWithEnsemble(
     onProgress: ((String) -> Unit)? = null
 ) {
     onProgress?.invoke("Applying high-contrast threshold...")
-    val staticCValue = 45.0
-    val staticBlockSize = 85
+    val staticCValue = 50.0
+    val staticBlockSize = 101
     val thresh = thresholdForOMR(context, warped, staticCValue, staticBlockSize)
 
     val parameterSweep = listOf(
