@@ -38,6 +38,8 @@ fun analyzeImageFile(
         val bitmap = BitmapFactory.decodeStream(input) ?: return
         val raw = Mat()
         Utils.bitmapToMat(bitmap, raw)
+
+        onProgress?.invoke("Normalizing image orientation...")
         val rotated = rotateBitmapIfNeeded(context, imageUri, raw)
 
         val finalMat = if (rotated.width() > rotated.height()) {
@@ -48,9 +50,12 @@ fun analyzeImageFile(
         } else {
             rotated
         }
+
+        onProgress?.invoke("Scanning QR code...")
         val qrRawData = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
         val qrData = parseQRCodeData(qrRawData)
 
+        onProgress?.invoke("Aligning and warping sheet...")
         val warped = detectAndWarpSheet(finalMat)
         finalMat.release()
 
@@ -71,10 +76,9 @@ fun analyzeImageFile(
 
         if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
-        onProgress?.invoke("Converting to threshold image...")
+        onProgress?.invoke("Validating sheet contents...")
         val thresh = thresholdForOMR(context, warped, cValue = 15.0, blockSize = 69)
 
-        onProgress?.invoke("Validating answer sheet...")
         val validation = validateAnswerSheet(
             thresh = thresh,
             qrData = qrData,
@@ -90,10 +94,12 @@ fun analyzeImageFile(
         }
 
         val detectedAnswers = mutableListOf<DetectedAnswer>()
-        processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers)
+        processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, onProgress)
 
         warped.release()
         rotated.release()
+
+        onProgress?.invoke("Finalizing results...")
         onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers))
     }
 }
@@ -327,7 +333,7 @@ fun processAnswerSheetWithEnsemble(
     warped: Mat,
     qrData: QRCodeData?,
     finalAnswers: MutableList<DetectedAnswer>,
-    onProgress: ((String) -> Unit)? = null
+    onProgress: ((String) -> Unit)? = null // <-- Ensure this is passed
 ) {
     onProgress?.invoke("Applying high-contrast threshold...")
     val staticCValue = 50.0
@@ -350,7 +356,6 @@ fun processAnswerSheetWithEnsemble(
         val scanAnswers  = mutableListOf<DetectedAnswer>()
         val stepDebugMat = warped.clone()
 
-        // Pass Sweep Name
         processAnswerSheetWithQRData(context, thresh, stepDebugMat, qrData, scanAnswers, params, "Sweep ${index + 1}")
         allScans.add(scanAnswers)
 
@@ -358,18 +363,18 @@ fun processAnswerSheetWithEnsemble(
         stepDebugMat.release()
     }
 
-    onProgress?.invoke("Stray mark check...")
+    onProgress?.invoke("Checking for stray marks...")
     val strayParams = OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.15, dominanceRatio = 0.45)
     val strayAnswers  = mutableListOf<DetectedAnswer>()
     val strayDebugMat = warped.clone()
 
-    // Pass Sweep Name
     processAnswerSheetWithQRData(context, thresh, strayDebugMat, qrData, strayAnswers, strayParams, "Stray Check")
 
     if (DEBUG_DRAW) saveDebugMat(context, strayDebugMat, "04_detected_stray")
     strayDebugMat.release()
     thresh.release()
 
+    onProgress?.invoke("Tallying ensemble votes...")
     val numQuestions = allScans.first().size
     for (i in 0 until numQuestions) {
         val votes        = allScans.map { it[i].detected }
@@ -399,10 +404,9 @@ fun processAnswerSheetWithEnsemble(
             else -> -1
         }
 
-        // --- NEW: Final Ensemble Output Log ---
         val finalStr = when(finalVote) {
             -1 -> "BLANK"
-            -2 -> "DOUBLE"
+            -2 -> "INVALID"
             else -> ('A' + finalVote - 1).toString()
         }
         val voteChars = votes.map { if (it in 1..4) ('A' + it - 1).toString() else it.toString() }
