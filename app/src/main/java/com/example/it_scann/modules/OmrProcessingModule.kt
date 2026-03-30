@@ -284,25 +284,32 @@ fun processAnswerSheetWithQRData(
 
             val detectedValue = when {
                 rowTotal < rowTotalMin -> -1
-                best.second < params.hardMinMark -> -1
-                winnerMargin < minWinnerMargin && best.second < (params.hardMinMark * 2.0) -> -1
-                winnerShare < minWinnerShare && best.second < (params.hardMinMark * 2.5) -> -1
-                bestCellHasStray -> -2
-                otherCellHasStray -> -2
-                isFaintDoubleBubble -> -2
-                second.second > params.invalidThreshold && second.second > (best.second * params.dominanceRatio) -> -2
+                best.second < params.hardMinMark -> -2
+                winnerMargin < minWinnerMargin && best.second < (params.hardMinMark * 2.0) -> -3
+                winnerShare < minWinnerShare && best.second < (params.hardMinMark * 2.5) -> -4
+                bestCellHasStray -> -5
+                otherCellHasStray -> -6
+                isFaintDoubleBubble -> -7
+                second.second > params.invalidThreshold && second.second > (best.second * params.dominanceRatio) -> -8
                 else -> best.first + 1
             }
 
             val testNumbers    = ExamConfigurations.getTestNumbersForTestType(qrData?.testType)
             val realTestNumber = testNumbers.getOrElse(columnIndex) { columnIndex + 1 }
 
-            // --- NEW: Detailed Metrics Log ---
+// --- NEW: Detailed Metrics Log ---
             val bestChar = ('A' + best.first)
             val secondChar = ('A' + second.first)
+
             val detStr = when(detectedValue) {
-                -1 -> "BLANK"
-                -2 -> "DOUBLE"
+                -1 -> "ERR: ROW_BLANK"
+                -2 -> "ERR: MARK_TOO_FAINT"
+                -3 -> "ERR: NARROW_MARGIN"
+                -4 -> "ERR: LOW_INK_SHARE"
+                -5 -> "ERR: STRAY_ON_BEST"
+                -6 -> "ERR: STRAY_ON_OTHER"
+                -7 -> "ERR: FAINT_DOUBLE"
+                -8 -> "ERR: STRONG_DOUBLE"
                 else -> ('A' + detectedValue - 1).toString()
             }
             Log.d("OMR_METRICS", "[$sweepName] Test $realTestNumber Q${q + 1} -> Det: $detStr | 1st: $bestChar (${best.second.fmt()}), 2nd: $secondChar (${second.second.fmt()})")
@@ -336,9 +343,13 @@ fun processAnswerSheetWithEnsemble(
     onProgress: ((String) -> Unit)? = null // <-- Ensure this is passed
 ) {
     onProgress?.invoke("Applying high-contrast threshold...")
-    val staticCValue = 50.0
+    val staticCValue = 55.0
     val staticBlockSize = 101
     val thresh = thresholdForOMR(context, warped, staticCValue, staticBlockSize)
+
+    // hardMinMark = minimum density value to consider a mark.
+    // invalidThreshold = minimum density value to consider the second mark
+    // dominanceRatio = (secondScore > bestScore * dominanceRatio),
 
     val parameterSweep = listOf(
         OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.05, dominanceRatio = 0.05),
@@ -364,7 +375,7 @@ fun processAnswerSheetWithEnsemble(
     }
 
     onProgress?.invoke("Checking for stray marks...")
-    val strayParams = OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.15, dominanceRatio = 0.45)
+    val strayParams = OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.15, dominanceRatio = 0.1)
     val strayAnswers  = mutableListOf<DetectedAnswer>()
     val strayDebugMat = warped.clone()
 
@@ -379,38 +390,59 @@ fun processAnswerSheetWithEnsemble(
     for (i in 0 until numQuestions) {
         val votes        = allScans.map { it[i].detected }
         val strayVote    = strayAnswers.getOrNull(i)?.detected
-        val sweepInvalid = votes.count { it == -2 }
+
+        // Count anything -2 or lower as an invalid state
+        val sweepInvalid = votes.count { it <= -2 }
 
         val validVotes = votes.filter { it > 0 }
         val uniqueResults = validVotes.distinct()
         val mostCommonValid = validVotes.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
         val validConsensus = if (mostCommonValid != null) validVotes.count { it == mostCommonValid } else 0
 
+        // Grab the most common error code to log if the ensemble fails this question
+        val mostCommonInvalid = votes.filter { it <= -2 }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: -2
+
         val hasAnyInvalid = sweepInvalid > 0
-        val hasStrayInvalid = strayVote == -2
+        val hasStrayInvalid = strayVote != null && strayVote <= -2
         val hasValidAnswer = validVotes.isNotEmpty()
         val conflictingValidAnswers = uniqueResults.size > 1
         val blankVotes = votes.count { it == -1 }
 
         val finalVote = when {
+            // Strong consensus passes
             validConsensus >= 3 && sweepInvalid <= 2 -> mostCommonValid!!
-            hasStrayInvalid && hasValidAnswer && validConsensus < 3 -> -2
-            hasAnyInvalid && conflictingValidAnswers -> -2
-            hasAnyInvalid && hasValidAnswer && validConsensus < (allScans.size - sweepInvalid) -> -2
-            sweepInvalid > allScans.size / 2 -> -2
+            // Stray mark vetoes a weak consensus
+            hasStrayInvalid && hasValidAnswer && validConsensus < 3 -> strayVote!!
+            // Multiple strong but conflicting marks (Double answer)
+            hasAnyInvalid && conflictingValidAnswers -> -8
+            // Invalid marks outnumber the valid consensus
+            hasAnyInvalid && hasValidAnswer && validConsensus < (allScans.size - sweepInvalid) -> mostCommonInvalid
+            // Majority of sweeps failed
+            sweepInvalid > allScans.size / 2 -> mostCommonInvalid
+            // Entirely blank
             validVotes.isEmpty() -> -1
+            // Mostly blank
             blankVotes >= 3 && validConsensus <= 2 -> -1
-            uniqueResults.size > 1 -> -2
+            // Conflicting valid answers without invalid flags
+            uniqueResults.size > 1 -> -8
             else -> -1
         }
 
         val finalStr = when(finalVote) {
-            -1 -> "BLANK"
-            -2 -> "INVALID"
+            -1 -> "ERR: ROW_BLANK"
+            -2 -> "ERR: MARK_TOO_FAINT"
+            -3 -> "ERR: NARROW_MARGIN"
+            -4 -> "ERR: LOW_INK_SHARE"
+            -5 -> "ERR: STRAY_ON_BEST"
+            -6 -> "ERR: STRAY_ON_OTHER"
+            -7 -> "ERR: FAINT_DOUBLE"
+            -8 -> "ERR: STRONG_DOUBLE"
             else -> ('A' + finalVote - 1).toString()
         }
-        val voteChars = votes.map { if (it in 1..4) ('A' + it - 1).toString() else it.toString() }
-        val strayChar = if (strayVote != null && strayVote in 1..4) ('A' + strayVote - 1).toString() else strayVote.toString()
+
+        // Format the raw numbers in the array for the log
+        val voteChars = votes.map { if (it > 0) ('A' + it - 1).toString() else it.toString() }
+        val strayChar = if (strayVote != null && strayVote > 0) ('A' + strayVote - 1).toString() else strayVote.toString()
 
         Log.d("OMR_ENSEMBLE", "Test ${allScans.first()[i].testNumber} Q${allScans.first()[i].questionNumber} | Votes: $voteChars | Stray: $strayChar -> FINAL: $finalStr")
 

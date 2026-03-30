@@ -3,7 +3,14 @@ package com.example.it_scann.grading
 import android.util.Log
 import com.example.it_scann.database.AnswerKeyDao
 import com.example.it_scann.modules.DetectedAnswer
-import kotlin.collections.iterator
+
+// Helper function to extract array of valid answers from bracket syntax
+fun parseAnswerKey(answerKeyStr: String): List<String> {
+    val regex = Regex("\\[(.*?)]|([A-Z])")
+    return regex.findAll(answerKeyStr).map { match ->
+        match.groupValues[1].ifEmpty { match.groupValues[2] }
+    }.toList()
+}
 
 suspend fun compareWithAnswerKey(
     detected: List<DetectedAnswer>,
@@ -31,7 +38,8 @@ suspend fun compareWithAnswerKey(
             continue
         }
 
-        val keyString = keyEntity.answerString
+        // Parse the raw string into a logical List<String>
+        val parsedKey = parseAnswerKey(keyEntity.answerString)
         var score = 0
 
         Log.d("AnswerCompare", "----- TEST NUMBER: $testNumber -----")
@@ -55,22 +63,24 @@ suspend fun compareWithAnswerKey(
                 continue
             }
 
-            if (qIndex < 0 || qIndex >= keyString.length) {
+            // Compare against the parsed array's size, not raw string length
+            if (qIndex < 0 || qIndex >= parsedKey.size) {
                 Log.w(
                     "AnswerCompare",
-                    "Test $testNumber | Q${d.questionNumber}: Out of range for key length=${keyString.length}"
+                    "Test $testNumber | Q${d.questionNumber}: Out of range for parsed key length=${parsedKey.size}"
                 )
                 continue
             }
 
-            val correctChar = keyString[qIndex]
-            val isCorrect = detectedChar == correctChar
+            // A group can be a single letter ("A") or multiple letters ("AB")
+            val validAnswersForQuestion = parsedKey[qIndex]
+            val isCorrect = validAnswersForQuestion.contains(detectedChar)
 
             if (isCorrect) score++
 
             Log.d(
                 "AnswerCompare",
-                "Test $testNumber | Q${d.questionNumber} -> Detected=$detectedChar | ${if (isCorrect) "CORRECT" else "WRONG"}"
+                "Test $testNumber | Q${d.questionNumber} -> Detected=$detectedChar | Expected=${validAnswersForQuestion} | ${if (isCorrect) "CORRECT" else "WRONG"}"
             )
         }
 

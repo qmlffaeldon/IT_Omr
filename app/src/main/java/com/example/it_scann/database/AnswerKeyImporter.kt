@@ -37,21 +37,29 @@ object AnswerKeyImporter {
         var errors = 0
 
         for ((partIndex, testNumber) in testNumbers.withIndex()) {
-            val keyString = getCellAsString(row, 2 + partIndex)
-            val isValid = !keyString.isNullOrEmpty()
-                    && keyString.length == 25
-                    && keyString.all { it.uppercaseChar() in "ABCD" }
+            val rawKeyString = getCellAsString(row, 2 + partIndex)?.uppercase() ?: ""
+
+            // Regex to split string into bracketed groups or single characters
+            val parsedGroups = Regex("\\[(.*?)\\]|([A-Z])")
+                .findAll(rawKeyString)
+                .map { it.groupValues[1].ifEmpty { it.groupValues[2] } }
+                .toList()
+
+            // Validate there are exactly 25 parsed answers, and all characters inside them are A, B, C, or D
+            val isValid = parsedGroups.size == 25 && parsedGroups.all { group ->
+                group.isNotEmpty() && group.all { it in "ABCD" }
+            }
 
             if (isValid) {
                 entities.add(
                     AnswerKeyEntity(
-                        examCode = examCode.uppercase(),  // ← added
+                        examCode = examCode.uppercase(),
                         testNumber = testNumber,
                         setNumber = setNumber,
-                        answerString = keyString.uppercase()
+                        answerString = rawKeyString // Store raw string (e.g., ABC[AD]A...)
                     )
                 )
-            } else if (!keyString.isNullOrEmpty()) {
+            } else if (rawKeyString.isNotEmpty()) {
                 errors++
             }
         }
