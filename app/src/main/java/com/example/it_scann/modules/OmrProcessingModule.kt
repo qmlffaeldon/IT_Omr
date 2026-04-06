@@ -290,7 +290,7 @@ fun processAnswerSheetWithQRData(
                 bestCellHasStray -> -5
                 otherCellHasStray -> -6
                 isFaintDoubleBubble -> -7
-                second.second > params.invalidThreshold && second.second > (best.second * params.dominanceRatio) -> -8
+                second.second > params.invalidThreshold && second.second > (minOf(best.second, 1.0) * params.dominanceRatio) -> -8
                 else -> best.first + 1
             }
 
@@ -352,11 +352,12 @@ fun processAnswerSheetWithEnsemble(
     // dominanceRatio = (secondScore > bestScore * dominanceRatio),
 
     val parameterSweep = listOf(
-        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.05, dominanceRatio = 0.05),
-        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.10, dominanceRatio = 0.075),
-        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.15, dominanceRatio = 0.10),
-        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.20, dominanceRatio = 0.125),
-        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.03, invalidThreshold = 0.25, dominanceRatio = 0.15)
+        // 0.02 dominance means the second mark only needs to hit 0.020 to trigger an error
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.01, invalidThreshold = 0.01, dominanceRatio = 0.05),
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.01, invalidThreshold = 0.02, dominanceRatio = 0.075),
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.01, invalidThreshold = 0.03, dominanceRatio = 0.1),
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.01, invalidThreshold = 0.04, dominanceRatio = 0.125),
+        OMRParams(staticCValue, staticBlockSize, hardMinMark = 0.01, invalidThreshold = 0.05, dominanceRatio = 0.15 )
     )
 
     val allScans = mutableListOf<List<DetectedAnswer>>()
