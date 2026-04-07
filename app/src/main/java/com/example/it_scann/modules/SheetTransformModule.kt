@@ -217,10 +217,10 @@ fun warpSheetFromPoints(src: Mat, orderedPoints: Array<Point>): Mat {
     Imgproc.warpPerspective(src, fullWarped, matrix, Size(1200.0, 1600.0))
 
     // Area to be cropped
-    val cropX = (1200 * 0.035).toInt()  // Cut ~3.5% off the left margin
-    val cropY = (1600 * 0.295).toInt()  // Cut ~21.5% off the top (Removes header)
-    val cropW = (1200 * 0.775).toInt()   // Keep ~85% of the width
-    val cropH = (1600 * 0.600).toInt()   // Keep ~80% of the height (Removes bottom space)
+    val cropX = (1200 * 0.0125).toInt()  // Cut ~3.5% off the left margin
+    val cropY = (1600 * 0.29125).toInt()  // Cut ~21.5% off the top (Removes header)
+    val cropW = (1200 * 0.8075).toInt()   // Keep ~85% of the width
+    val cropH = (1600 * 0.61).toInt()   // Keep ~80% of the height (Removes bottom space)
 
     // Ensure the crop doesn't go out of bounds
     val safeRect = Rect(cropX, cropY, cropW, cropH)

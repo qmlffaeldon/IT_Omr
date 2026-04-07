@@ -104,9 +104,71 @@ fun analyzeImageFile(
     }
 }
 
+fun detectSheetFromAnchors(src: Mat): List<Point>? {
+    val gray = Mat()
+    val thresh = Mat()
+    Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+
+    // 1. Isolate solid black boxes
+    Imgproc.adaptiveThreshold(
+        gray, thresh, 255.0,
+        Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+        Imgproc.THRESH_BINARY_INV, 51, 15.0
+    )
+
+    val contours = mutableListOf<MatOfPoint>()
+    Imgproc.findContours(thresh, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+    val validSquares = mutableListOf<Point>()
+    val imgArea = src.rows() * src.cols()
+
+    // 2. Filter for square anchor markers
+    for (contour in contours) {
+        val contourArea = Imgproc.contourArea(contour)
+
+        // Looks for shapes taking up between 0.05% and 2.0% of the camera frame
+        if (contourArea > imgArea * 0.0005 && contourArea < imgArea * 0.02) {
+            val contour2f = MatOfPoint2f()
+            contour2f.fromList(contour.toList())
+
+            val peri = Imgproc.arcLength(contour2f, true)
+            val approx = MatOfPoint2f()
+            Imgproc.approxPolyDP(contour2f, approx, 0.04 * peri, true)
+
+            if (approx.toList().size == 4) {
+                val rect = Imgproc.boundingRect(contour)
+                val aspectRatio = rect.width.toDouble() / rect.height.toDouble()
+
+                // Check if roughly square
+                if (aspectRatio in 0.8..1.2) {
+                    val cx = rect.x + (rect.width / 2.0)
+                    val cy = rect.y + (rect.height / 2.0)
+                    validSquares.add(Point(cx, cy))
+                }
+            }
+        }
+    }
+
+    gray.release()
+    thresh.release()
+
+    // 3. Extract the 4 outermost squares
+    if (validSquares.size >= 4) {
+        val topLeft = validSquares.minByOrNull { it.x + it.y } ?: return null
+        val bottomRight = validSquares.maxByOrNull { it.x + it.y } ?: return null
+        val topRight = validSquares.minByOrNull { it.y - it.x } ?: return null
+        val bottomLeft = validSquares.maxByOrNull { it.y - it.x } ?: return null
+
+        return listOf(topLeft, topRight, bottomRight, bottomLeft)
+    }
+
+    return null
+}
+
 fun detectAndWarpSheet(src: Mat): Mat? {
-    val points = detectSheetContour(src) ?: return null
-    return warpSheetFromPoints(src, points)
+    // Uses anchors instead of the old detectSheetContour
+    val points = detectSheetFromAnchors(src) ?: return null
+    return warpSheetFromPoints(src, points.toTypedArray()) // Your existing fixed warp function
 }
 
 fun thresholdForOMR(context: Context, src: Mat, cValue: Double, blockSize: Int): Mat {

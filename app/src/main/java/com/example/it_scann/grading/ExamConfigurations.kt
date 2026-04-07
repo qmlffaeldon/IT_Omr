@@ -28,12 +28,12 @@ object ExamConfigurations {
     )
 
     // X positions for up to 4 columns on the answer sheet
-    private val columnStartX = listOf(0.053, 0.291, 0.526, 0.776)
+    private val columnStartX = listOf(0.055, 0.2935, 0.535, 0.78)
 
     // Shared layout constants
     private const val COL_WIDTH  = 0.185
-    private const val COL_STARTY = 0.0715
-    private const val COL_HEIGHT = 0.905
+    private const val COL_STARTY = 0.0705
+    private const val COL_HEIGHT = 0.915
 
     fun getColumnsForTestType(testType: String?): List<Column> {
         val elements = examRegistry[testType?.uppercase()]
