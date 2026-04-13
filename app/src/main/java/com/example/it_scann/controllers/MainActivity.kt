@@ -106,8 +106,8 @@ class MainActivity : AppCompatActivity() {
             resolver.openOutputStream(fileUri)?.use { outputStream ->
                 val writer = outputStream.bufferedWriter()
 
-                // Header — E1-E10 + separate Code column for Morse/COD
-                writer.write("SeatNumber,E1,E2,E3,E4,E5,E6,E7,E8,E9,E10,Code\n")
+                // NEW Header matching the requested format
+                writer.write("SeatNumber,SetNumber,Region,Place,Date,ExamType,E1,E2,E3,E4,E5,E6,E7,E8,E9,E10,Code,CompleteRow\n")
 
                 exams.sortedBy { it.exam.seatNumber }.forEach { examWithElements ->
                     val exam             = examWithElements.exam
@@ -116,13 +116,12 @@ class MainActivity : AppCompatActivity() {
 
                     // E1–E10 columns
                     val elemScores = if (exam.isAbsent) {
-                        // Put "A" only in the first expected element column, leave others blank
                         val firstExpected = expectedElements.filter { it != 99 }.minOrNull()
                         (1..10).joinToString(",") { elemNumber ->
                             when {
                                 elemNumber == firstExpected -> "A"
-                                elemNumber in expectedElements -> ""   // other expected cols = blank
-                                else -> ""                             // non-applicable cols = blank
+                                elemNumber in expectedElements -> ""
+                                else -> ""
                             }
                         }
                     } else {
@@ -133,14 +132,23 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
 
-                    // Code column — absent students also leave Code blank
                     val codeScore = if (exam.isAbsent) {
                         ""
                     } else if (99 in expectedElements) {
                         elementMap[99]?.score?.toString() ?: "0"
                     } else ""
 
-                    writer.write("${exam.seatNumber},$elemScores,$codeScore\n")
+                    // Extract new data
+                    val seatNumber = exam.seatNumber
+                    val setNumber = exam.setNumber // safely handles if setNumber is null
+                    val region = ""
+                    val place = ""
+                    val date = ""
+                    val examType = exam.examCode
+                    val completeRow = ""
+
+                    // Write the full formatted row
+                    writer.write("$seatNumber,$setNumber,$region,$place,$date,$examType,$elemScores,$codeScore,$completeRow\n")
                 }
 
                 writer.flush()
@@ -148,7 +156,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         Log.d("ExportCSV", "Simplified export done")
-        AlertDialog.Builder(this@MainActivity)
+        AlertDialog.Builder(this@MainActivity) // Cast context if needed, or use original this@MainActivity
             .setTitle("Results Exported")
             .setMessage("Exported to Documents/ROEC_ExamResults")
             .setPositiveButton("OK", null)
