@@ -12,10 +12,13 @@ data class OMRResult(
     val answers: List<DetectedAnswer>
 )
 data class QRCodeData(
-    val testType: String?,      // "A", "B", "C", "D"
+    val testType: String,
     val setNumber: Int?,
     val seatNumber: Int?,
-    val rawData: String
+    val region: String? = null,
+    val date: String? = null,
+    val placeOfExam: String? = null,
+    val rawData: String? = null
 )
 data class DetectedAnswer(
     val testNumber: Int,
@@ -139,30 +142,30 @@ fun parseQRCodeData(rawData: String?): QRCodeData? {
     if (rawData.isNullOrEmpty()) return null
 
     return try {
+        // Automatically handle both the new semicolon format and the old comma format
         val map = when {
             rawData.contains(";") -> {
                 rawData.split(";").associate {
-                    val (k, v) = it.split("=", limit = 2)
+                    val (k, v) = it.split(":", limit = 2) + listOf("") // + listOf("") prevents index out of bounds
                     k.trim() to v.trim()
                 }
             }
             rawData.contains(",") -> {
                 rawData.split(",").associate {
-                    val (k, v) = it.split(":", limit = 2)
+                    val (k, v) = it.split(":", limit = 2) + listOf("")
                     k.trim() to v.trim()
                 }
             }
             else -> emptyMap()
         }
 
-        val testType = map["TYPE"] ?: map["TestType"]
-        val setNumber = map["SET"]?.toInt() ?: map["Set"]?.toInt()
-        val seatNumber = map["SEAT"]?.toInt() ?: map["SeatNumber"]?.toInt()
-
         QRCodeData(
-            testType = testType,
-            setNumber = setNumber,
-            seatNumber = seatNumber,
+            testType = map["TestType"] ?: map["TYPE"] ?: "",
+            setNumber = map["Set"]?.toIntOrNull() ?: map["SET"]?.toIntOrNull(),
+            seatNumber = map["SeatNumber"]?.toIntOrNull() ?: map["SEAT"]?.toIntOrNull(),
+            region = map["Region"],
+            date = map["Date"],
+            placeOfExam = map["PlaceOfExam"],
             rawData = rawData
         )
 
@@ -171,4 +174,3 @@ fun parseQRCodeData(rawData: String?): QRCodeData? {
         null
     }
 }
-
