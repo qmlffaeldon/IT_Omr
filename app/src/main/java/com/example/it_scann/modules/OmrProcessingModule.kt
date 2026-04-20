@@ -152,17 +152,34 @@ fun detectSheetFromAnchors(src: Mat): List<Point>? {
     gray.release()
     thresh.release()
 
-    // 3. Extract the 4 outermost squares
-    if (validSquares.size >= 4) {
-        val topLeft = validSquares.minByOrNull { it.x + it.y } ?: return null
-        val bottomRight = validSquares.maxByOrNull { it.x + it.y } ?: return null
-        val topRight = validSquares.minByOrNull { it.y - it.x } ?: return null
-        val bottomLeft = validSquares.maxByOrNull { it.y - it.x } ?: return null
+    // 3. Quadrant Locking: Divide the image into 4 sections
+    val imgW = src.cols()
+    val imgH = src.rows()
+    val halfW = imgW / 2
+    val halfH = imgH / 2
 
-        return listOf(topLeft, topRight, bottomRight, bottomLeft)
+    // Group the valid squares into their respective quadrants
+    val topLefts = validSquares.filter { it.x < halfW && it.y < halfH }
+    val topRights = validSquares.filter { it.x >= halfW && it.y < halfH }
+    val bottomLefts = validSquares.filter { it.x < halfW && it.y >= halfH }
+    val bottomRights = validSquares.filter { it.x >= halfW && it.y >= halfH }
+
+    // 4. Extract the outermost square from EACH quadrant
+    // If a quadrant is empty (e.g., corner is off-screen), return null and wait for next frame
+    val topLeft = topLefts.minByOrNull { it.x + it.y } ?: return null
+    val topRight = topRights.maxByOrNull { it.x - it.y } ?: return null
+    val bottomLeft = bottomLefts.maxByOrNull { it.y - it.x } ?: return null
+    val bottomRight = bottomRights.maxByOrNull { it.x + it.y } ?: return null
+
+    // 5. Sanity Check: Ensure the chosen points form a sufficiently large box
+    // This prevents warping if it accidentally grabs a tiny cluster of background artifacts
+    val boxWidth = (topRight.x - topLeft.x).coerceAtLeast(1.0)
+    val boxHeight = (bottomLeft.y - topLeft.y).coerceAtLeast(1.0)
+    if (boxWidth < imgW * 0.4 || boxHeight < imgH * 0.4) {
+        return null // The anchors are too close together to be the real paper
     }
 
-    return null
+    return listOf(topLeft, topRight, bottomRight, bottomLeft)
 }
 
 fun detectAndWarpSheet(src: Mat): Mat? {
