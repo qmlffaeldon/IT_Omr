@@ -53,6 +53,18 @@ fun analyzeImageFile(
 
         onProgress?.invoke("Scanning QR code...")
         val qrRawData = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
+        if (qrRawData == null) {
+            onValidationError?.invoke(
+                SheetValidationResult(
+                    isValid = false,
+                    reason = "QR code could not be detected.",
+                    failReason = ValidationFailReason.NO_QR,
+                    filledBubbleCount = 0,
+                    totalBubbles = 0
+                )
+            )
+            return // Stop processing
+        }
         val qrData = parseQRCodeData(qrRawData)
 
         onProgress?.invoke("Aligning and warping sheet...")

@@ -18,6 +18,7 @@ enum class ValidationFailReason {
     NO_SHEET,        // warped == null, camera couldn't find the paper
     BLANK,           // 0 bubbles → show Absent dialog
     TOO_FEW,         // 1–2 bubbles → show re-scan warning
+    NO_QR,          // QR took more than 10 seconds == no QR found
     VALID
 }
 

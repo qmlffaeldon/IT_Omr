@@ -315,6 +315,14 @@ class CameraScanActivity : AppCompatActivity() {
                                             .show()
                                     }
 
+                                    ValidationFailReason.NO_QR -> {
+                                        AlertDialog.Builder(this)
+                                            .setTitle("QR Code Error")
+                                            .setMessage("A valid QR code couldn't be found on the uploaded image. Please ensure the QR code is clearly visible and try again.")
+                                            .setPositiveButton("OK", null)
+                                            .show()
+                                    }
+
                                     ValidationFailReason.VALID -> {}
                                 }
                             }
@@ -807,6 +815,15 @@ class CameraScanActivity : AppCompatActivity() {
                                                                 "Please reposition the sheet and try again."
                                                     )
                                                     .setPositiveButton("Re-scan", null)
+                                                    .setCancelable(false)
+                                                    .show()
+                                            }
+
+                                            ValidationFailReason.NO_QR -> {
+                                                AlertDialog.Builder(this@CameraScanActivity)
+                                                    .setTitle("QR Code Error")
+                                                    .setMessage("A valid QR code couldn't be found on the paper. Please ensure the QR code is clearly visible and try again.")
+                                                    .setPositiveButton("OK", null)
                                                     .setCancelable(false)
                                                     .show()
                                             }

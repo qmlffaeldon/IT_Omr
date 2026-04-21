@@ -36,47 +36,50 @@ data class Column(
 fun detectQRCodeWithDetailedDebug(
     context: Context,
     src: Mat,
-    debugName: String = "qr_detection"
+    debugName: String = "qr_detection",
+    timeoutMs: Long = 5000L // 5 second timeout
 ): String? {
+    val startTime = System.currentTimeMillis()
     val detector = QRCodeDetector()
 
     try {
         val gray = Mat()
         Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
 
-        // Try multiple scales — small QR codes need upscaling
         val scalesToTry = listOf(1.0, 2.0, 3.0, 4.0)
 
         for (scale in scalesToTry) {
-            val scaled = Mat()
+            // Check timeout before next scale
+            if (System.currentTimeMillis() - startTime > timeoutMs) break
 
+            val scaled = Mat()
             if (scale == 1.0) {
                 gray.copyTo(scaled)
             } else {
-                Imgproc.resize(
-                    gray, scaled, Size(),
-                    scale, scale,
-                    Imgproc.INTER_CUBIC  // Better quality for upscaling
-                )
+                Imgproc.resize(gray, scaled, Size(), scale, scale, Imgproc.INTER_CUBIC)
             }
 
-            // Apply CLAHE on the scaled image
             val enhanced = Mat()
             val clahe = Imgproc.createCLAHE(3.0, Size(8.0, 8.0))
             clahe.apply(scaled, enhanced)
 
-            // Try both raw and enhanced versions
             val attempts = listOf(scaled to "gray_${scale}x", enhanced to "enhanced_${scale}x")
 
             for ((mat, label) in attempts) {
+                // Check timeout before deep scanning
+                if (System.currentTimeMillis() - startTime > timeoutMs) {
+                    Log.e("OMR", "QR detection timed out after ${timeoutMs}ms")
+                    scaled.release()
+                    enhanced.release()
+                    gray.release()
+                    return null
+                }
+
                 val points = Mat()
                 val straight = Mat()
-
                 val data = try {
                     detector.detectAndDecode(mat, points, straight)
-                } catch (e: Exception) {
-                    ""
-                } finally {
+                } catch (e: Exception) { "" } finally {
                     points.release()
                     straight.release()
                 }
@@ -89,42 +92,39 @@ fun detectQRCodeWithDetailedDebug(
                     return data
                 }
             }
-
             scaled.release()
             enhanced.release()
         }
 
-        // Last resort: sharpen then try again at 3x
-        val sharpened = Mat()
-        val kernel = Mat(3, 3, CvType.CV_32F).apply {
-            put(0, 0,  0.0, -1.0,  0.0)
-            put(1, 0, -1.0,  5.0, -1.0)
-            put(2, 0,  0.0, -1.0,  0.0)
-        }
-        val scaled3x = Mat()
-        Imgproc.resize(gray, scaled3x, Size(), 3.0, 3.0, Imgproc.INTER_CUBIC)
-        Imgproc.filter2D(scaled3x, sharpened, -1, kernel)
+        // Check timeout before last resort sharpening
+        if (System.currentTimeMillis() - startTime <= timeoutMs) {
+            val sharpened = Mat()
+            val kernel = Mat(3, 3, CvType.CV_32F).apply {
+                put(0, 0, 0.0, -1.0, 0.0)
+                put(1, 0, -1.0, 5.0, -1.0)
+                put(2, 0, 0.0, -1.0, 0.0)
+            }
+            val scaled3x = Mat()
+            Imgproc.resize(gray, scaled3x, Size(), 3.0, 3.0, Imgproc.INTER_CUBIC)
+            Imgproc.filter2D(scaled3x, sharpened, -1, kernel)
 
-        val points = Mat()
-        val straight = Mat()
-        val data = try {
-            detector.detectAndDecode(sharpened, points, straight)
-        } catch (e: Exception) { "" }
-        finally {
-            points.release()
-            straight.release()
-        }
+            val points = Mat()
+            val straight = Mat()
+            val data = try {
+                detector.detectAndDecode(sharpened, points, straight)
+            } catch (e: Exception) { "" } finally {
+                points.release()
+                straight.release()
+            }
 
-        gray.release()
-        sharpened.release()
-        scaled3x.release()
+            gray.release()
+            sharpened.release()
+            scaled3x.release()
 
-        if (data.isNotEmpty()) {
-            Log.d("OMR", "QR found via sharpening: $data")
-            return data
+            if (data.isNotEmpty()) return data
         }
 
-        Log.d("OMR", "QR not found after all attempts")
+        Log.e("OMR", "QR not found or timed out.")
         return null
 
     } catch (e: Exception) {
