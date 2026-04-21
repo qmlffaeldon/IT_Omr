@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
+import android.annotation.SuppressLint
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.lifecycle.lifecycleScope
@@ -66,6 +67,7 @@ class CameraScanActivity : AppCompatActivity() {
     private var lastScannedExamCode: String = "UNKNOWN"
     private var lastScannedSetNumber: Int = 1
 
+    @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_camera_scan)
@@ -79,10 +81,18 @@ class CameraScanActivity : AppCompatActivity() {
         OpenCVLoader.initDebug()
 
         // Setup your Capture Button from your layout
-        val captureButton = findViewById<ImageButton>(R.id.btn_capture) // make sure you have this in your XML
-
+        val captureButton = findViewById<ImageButton>(R.id.btn_capture)
+        // 1. Updated Capture Button Logic
         captureButton.setOnClickListener {
-            takePhoto()
+            if (currentFlashMode == FlashMode.CAPTURE_ONLY) {
+                lifecycleScope.launch {
+                    camera?.cameraControl?.enableTorch(true)
+                    delay(1000) // Give sensor 1 second to adjust exposure to the flash
+                    takePhoto()
+                }
+            } else {
+                takePhoto()
+            }
         }
 
         captureButton.isEnabled = false
@@ -107,21 +117,39 @@ class CameraScanActivity : AppCompatActivity() {
         bottomCard = findViewById<CardView>(R.id.cardBottomPopup)
 
         val flashBtn = findViewById<ImageButton>(R.id.btn_flash)
-
-        flashBtn.setOnClickListener {
+        // 2. Updated Flash Button Touch Listener
+        flashBtn.setOnTouchListener { view, event ->
             if (camera != null && camera!!.cameraInfo.hasFlashUnit()) {
-
-                isFlashOn = !isFlashOn
-
-                camera!!.cameraControl.enableTorch(isFlashOn)
-
-                if (isFlashOn) {
-                    flashBtn.setImageResource(R.drawable.ic_flash_on)
-                    flashBtn.background.setTint(Color.YELLOW)
-                } else {
-                    flashBtn.setImageResource(R.drawable.ic_flash_off)
-                    flashBtn.background.setTint(Color.WHITE)
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        flashHoldJob = lifecycleScope.launch {
+                            delay(750)
+                            if (currentFlashMode == FlashMode.TORCH) {
+                                setFlashMode(FlashMode.OFF)
+                            } else {
+                                setFlashMode(FlashMode.TORCH)
+                            }
+                            flashHoldJob = null
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        flashHoldJob?.let {
+                            it.cancel() // Cancel the 1.5s timer if they let go early
+                            if (currentFlashMode == FlashMode.CAPTURE_ONLY) {
+                                setFlashMode(FlashMode.OFF)
+                            } else {
+                                setFlashMode(FlashMode.CAPTURE_ONLY)
+                            }
+                            flashHoldJob = null
+                        }
+                        view.performClick()
+                        true
+                    }
+                    else -> false
                 }
+            } else {
+                false
             }
         }
 
@@ -483,9 +511,43 @@ class CameraScanActivity : AppCompatActivity() {
         bottomSheetDialog.show()
     }
 
-    private var imageCapture: ImageCapture? = null  // add this
+    private var imageCapture: ImageCapture? = null
     private var camera: Camera? = null
-    private var isFlashOn = false
+
+    enum class FlashMode { OFF, CAPTURE_ONLY, TORCH }
+    private var currentFlashMode = FlashMode.OFF
+    private var flashHoldJob: kotlinx.coroutines.Job? = null
+
+    private fun setFlashMode(mode: FlashMode) {
+        currentFlashMode = mode
+        val flashBtn = findViewById<ImageButton>(R.id.btn_flash)
+
+        when (mode) {
+            FlashMode.OFF -> {
+                camera?.cameraControl?.enableTorch(false)
+                flashBtn.setImageResource(R.drawable.ic_flash_off)
+                flashBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            }
+            FlashMode.CAPTURE_ONLY -> {
+                camera?.cameraControl?.enableTorch(false)
+                flashBtn.setImageResource(R.drawable.ic_flash_on)
+                flashBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.YELLOW)
+            }
+            FlashMode.TORCH -> {
+                camera?.cameraControl?.enableTorch(true)
+                flashBtn.setImageResource(R.drawable.ic_flash_on)
+                flashBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#87CEFA"))
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Reset flash state to default when app goes to Home/Recents
+        if (currentFlashMode != FlashMode.OFF) {
+            setFlashMode(FlashMode.OFF)
+        }
+    }
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
@@ -616,6 +678,13 @@ class CameraScanActivity : AppCompatActivity() {
                 override fun onImageSaved(
                     outputFileResults: ImageCapture.OutputFileResults
                 ) {
+                    // FORCE THE FLASH OFF IMMEDIATELY ON THE UI THREAD
+                    runOnUiThread {
+                        if (currentFlashMode == FlashMode.CAPTURE_ONLY) {
+                            camera?.cameraControl?.enableTorch(false)
+                        }
+                    }
+
                     val savedUri = outputFileResults.savedUri
                     if (savedUri == null) {
                         Log.e("CameraX", "Saved URI is null")
@@ -756,6 +825,13 @@ class CameraScanActivity : AppCompatActivity() {
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    // FORCE THE FLASH OFF ON ERROR AS WELL
+                    runOnUiThread {
+                        if (currentFlashMode == FlashMode.CAPTURE_ONLY) {
+                            camera?.cameraControl?.enableTorch(false)
+                        }
+                    }
+
                     Log.e(
                         "CameraX",
                         "Photo capture failed: ${exception.message}",
