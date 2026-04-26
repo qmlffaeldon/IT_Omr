@@ -37,4 +37,10 @@ interface AnswerKeyDao {
 
     @Query("SELECT * FROM answer_keys WHERE examCode = :examCode AND setNumber = :set")
     suspend fun getAnswerKeysForExam(examCode: String, set: Int): List<AnswerKeyEntity>  // ← renamed
+
+    @Query("UPDATE exam_results SET examDate = :date, region = :region, placeOfExam = :place")
+    suspend fun updateAllMetadata(date: String, region: String, place: String)
+
+    @Query("DELETE FROM exam_results")
+    suspend fun deleteAllResults()
 }
