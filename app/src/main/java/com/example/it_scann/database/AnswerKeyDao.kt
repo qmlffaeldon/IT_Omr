@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import androidx.room.Upsert
 
 @Dao
@@ -43,4 +44,10 @@ interface AnswerKeyDao {
 
     @Query("DELETE FROM exam_results")
     suspend fun deleteAllResults()
+
+    @Update
+    suspend fun updateExamResult(exam: ExamResultsEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertElementScore(element: ElementScoreEntity)
 }

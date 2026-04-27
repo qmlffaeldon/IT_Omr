@@ -24,15 +24,16 @@ data class AnswerKeyEntity(
 )
 data class ExamResultsEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val examCode: String,
-    val setNumber: Int,
-    val seatNumber: Int,
+    var examCode: String,
+    var setNumber: Int,
+    var seatNumber: Int,
     val totalScore: Int,
     val isAbsent: Boolean = false,
     val dateTaken: Long = System.currentTimeMillis(),
-    val examDate: String? = "",
-    val region: String? = "",
-    val placeOfExam: String? = ""
+    var examDate: String? = "",
+    var region: String? = "",
+    var placeOfExam: String? = "",
+    var completeRow: Boolean = false
 )
 
 

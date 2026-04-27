@@ -102,7 +102,7 @@ fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>) {
                 val seatNumber = exam.seatNumber
                 val setNumber = exam.setNumber
                 val region = exam.region ?: ""
-                val place = if (exam.placeOfExam.isNullOrEmpty()) "" else exam.placeOfExam.replace(",", "")
+                val place = exam.placeOfExam?.replace(",", "") ?: ""
                 val date = exam.examDate ?: ""
                 val examType = exam.examCode
 

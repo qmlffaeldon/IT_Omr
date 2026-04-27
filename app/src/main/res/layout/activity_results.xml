@@ -13,73 +13,48 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Exam Date" android:textStyle="bold"/>
-        <EditText android:id="@+id/etExamDate" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="MM/DD/YYYY"/>
+        <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+            <com.google.android.material.textfield.TextInputEditText android:id="@+id/etExamDate" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="MM/DD/YYYY" android:focusable="false" android:clickable="true" android:cursorVisible="false"/>
+        </com.google.android.material.textfield.TextInputLayout>
 
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Region" android:textStyle="bold" android:layout_marginTop="8dp"/>
-        <EditText android:id="@+id/etRegion" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="e.g. Region IV-A"/>
+        <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+            <AutoCompleteTextView android:id="@+id/spRegion" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="none"/>
+        </com.google.android.material.textfield.TextInputLayout>
 
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Place of Exam" android:textStyle="bold" android:layout_marginTop="8dp"/>
-        <EditText android:id="@+id/etPlace" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="e.g. Calaca City"/>
+        <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+            <com.google.android.material.textfield.TextInputEditText android:id="@+id/etPlace" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="e.g. TIP QC"/>
+        </com.google.android.material.textfield.TextInputLayout>
     </LinearLayout>
 
-    <LinearLayout
-        android:id="@+id/tableHeader"
-        android:layout_width="match_parent"
+    <TextView
+        android:id="@+id/tvNoData"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:weightSum="4"
-        android:layout_marginTop="16dp"
-        app:layout_constraintTop_toBottomOf="@id/metadataLayout">
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Seat" android:textStyle="bold"/>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Set" android:textStyle="bold"/>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Type" android:textStyle="bold"/>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Score" android:textStyle="bold"/>
-    </LinearLayout>
+        android:text="No data yet"
+        android:textStyle="bold"
+        android:textSize="18sp"
+        android:visibility="gone"
+        app:layout_constraintTop_toBottomOf="@id/metadataLayout"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvResults"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        app:layout_constraintTop_toBottomOf="@id/tableHeader"
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toBottomOf="@id/metadataLayout"
         app:layout_constraintBottom_toBottomOf="parent"/>
 
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fabSave"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Save"
-        android:visibility="gone"
-        android:layout_marginBottom="16dp"
-        app:layout_constraintBottom_toTopOf="@id/fabExport"
-        app:layout_constraintEnd_toEndOf="parent" />
-
+        android:id="@+id/fabSave" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Save" android:visibility="gone" android:layout_marginBottom="16dp" app:layout_constraintBottom_toTopOf="@id/fabExport" app:layout_constraintEnd_toEndOf="parent" />
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fabExport"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Export"
-        android:visibility="gone"
-        android:layout_marginBottom="16dp"
-        app:layout_constraintBottom_toTopOf="@id/fabDelete"
-        app:layout_constraintEnd_toEndOf="parent" />
-
+        android:id="@+id/fabExport" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Export" android:visibility="gone" android:layout_marginBottom="16dp" app:layout_constraintBottom_toTopOf="@id/fabDelete" app:layout_constraintEnd_toEndOf="parent" />
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fabDelete"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Delete All"
-        android:visibility="gone"
-        android:layout_marginBottom="16dp"
-        app:layout_constraintBottom_toTopOf="@id/fabMain"
-        app:layout_constraintEnd_toEndOf="parent" />
-
+        android:id="@+id/fabDelete" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Delete All" android:visibility="gone" android:layout_marginBottom="16dp" app:layout_constraintBottom_toTopOf="@id/fabMain" app:layout_constraintEnd_toEndOf="parent" />
     <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fabMain"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:src="@android:drawable/ic_menu_add"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
-
+        android:id="@+id/fabMain" android:layout_width="wrap_content" android:layout_height="wrap_content" android:src="@android:drawable/ic_menu_add" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintEnd_toEndOf="parent" />
 </androidx.constraintlayout.widget.ConstraintLayout>
