@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/rowContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:weightSum="100" android:gravity="center_vertical" android:paddingVertical="4dp">
+    android:id="@+id/rowContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:weightSum="100" android:gravity="center_vertical" android:paddingVertical="4dp" android:divider="@drawable/divider_vertical" android:showDividers="middle">
 
-    <TextView android:id="@+id/tvSeat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="12" android:textAlignment="center" android:textStyle="bold"/>
-    <Spinner android:id="@+id/spSet" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="14" android:textAlignment="center" android:background="@null"/>
-    <Spinner android:id="@+id/spType" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="34" android:textAlignment="center" android:background="@null"/>
-
+    <TextView android:id="@+id/tvSeat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="15" android:gravity="center" android:textStyle="bold"/>
+    <Spinner android:id="@+id/spSet" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="15" android:gravity="center" android:background="@null" android:textAlignment="center"/>
 </LinearLayout>

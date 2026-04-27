@@ -105,6 +105,7 @@ fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>) {
                 val place = exam.placeOfExam?.replace(",", "") ?: ""
                 val date = exam.examDate ?: ""
                 val examType = exam.examCode
+                val completeRow = exam.completeRow
 
                 writer.write("$seatNumber,$setNumber,$region,$place,$date,$examType,$elemScores,$codeScore,\n")
             }

@@ -50,4 +50,7 @@ interface AnswerKeyDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertElementScore(element: ElementScoreEntity)
+
+    @Query("DELETE FROM element_scores WHERE examResultId = :examId")
+    suspend fun deleteElementsForExam(examId: Long)
 }

@@ -33,7 +33,7 @@ data class ExamResultsEntity(
     var examDate: String? = "",
     var region: String? = "",
     var placeOfExam: String? = "",
-    var completeRow: Boolean = false
+    var completeRow: String = "No"
 )
 
 

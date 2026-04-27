@@ -46,15 +46,67 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_marginTop="16dp"
+        android:paddingBottom="120dp"
+        android:clipToPadding="false"
         app:layout_constraintTop_toBottomOf="@id/metadataLayout"
         app:layout_constraintBottom_toBottomOf="parent"/>
 
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fabSave" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Save" android:visibility="gone" android:layout_marginBottom="16dp" app:layout_constraintBottom_toTopOf="@id/fabExport" app:layout_constraintEnd_toEndOf="parent" />
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fabExport" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Export" android:visibility="gone" android:layout_marginBottom="16dp" app:layout_constraintBottom_toTopOf="@id/fabDelete" app:layout_constraintEnd_toEndOf="parent" />
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fabDelete" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Delete All" android:visibility="gone" android:layout_marginBottom="16dp" app:layout_constraintBottom_toTopOf="@id/fabMain" app:layout_constraintEnd_toEndOf="parent" />
+    <LinearLayout
+        android:id="@+id/fabMenuContainer"
+        android:layout_width="220dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginBottom="16dp"
+        app:layout_constraintBottom_toTopOf="@id/fabMain"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fabChangeTypes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Change Exam Types"
+            android:textColor="@color/black"
+            app:backgroundTint="#DECF4A"
+            android:layout_marginBottom="12dp" />
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fabSave"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Save Changes"
+            android:textColor="@android:color/white"
+            app:backgroundTint="#515CB3"
+            android:layout_marginBottom="12dp" />
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fabDelete"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Delete All"
+            android:textColor="@android:color/white"
+            app:backgroundTint="#DC273B"
+            android:layout_marginBottom="12dp" />
+
+        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            android:id="@+id/fabExport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Export to CSV"
+            android:textColor="@android:color/white"
+            app:backgroundTint="#2F9248" />
+    </LinearLayout>
+
     <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fabMain" android:layout_width="wrap_content" android:layout_height="wrap_content" android:src="@android:drawable/ic_menu_add" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintEnd_toEndOf="parent" />
+        android:id="@+id/fabMain"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="24dp"
+        android:src="@android:drawable/ic_menu_sort_by_size"
+        app:tint="@android:color/white"
+        app:backgroundTint="#515CB3"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 </androidx.constraintlayout.widget.ConstraintLayout>
