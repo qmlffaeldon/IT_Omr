@@ -131,8 +131,8 @@ class ChangeExamAdapter(
     private val onSelectionChanged: () -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    private val TYPE_HEADER = 0
-    private val TYPE_ROW = 1
+    private val typeHeader = 0
+    private val typeRow = 1
 
     fun updateData(newData: List<Any>) {
         data.clear()
@@ -140,11 +140,11 @@ class ChangeExamAdapter(
         notifyDataSetChanged()
     }
 
-    override fun getItemViewType(position: Int) = if (data[position] is String) TYPE_HEADER else TYPE_ROW
+    override fun getItemViewType(position: Int) = if (data[position] is String) typeHeader else typeRow
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
-        return if (viewType == TYPE_HEADER) {
+        return if (viewType == typeHeader) {
             HeaderViewHolder(inflater.inflate(R.layout.item_change_header, parent, false))
         } else {
             RowViewHolder(inflater.inflate(R.layout.item_change_row, parent, false))

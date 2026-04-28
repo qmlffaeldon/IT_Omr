@@ -107,7 +107,7 @@ fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>) {
                 val examType = exam.examCode
                 val completeRow = exam.completeRow
 
-                writer.write("$seatNumber,$setNumber,$region,$place,$date,$examType,$elemScores,$codeScore,\n")
+                writer.write("$seatNumber,$setNumber,$region,$place,$date,$examType,$elemScores,$codeScore,$completeRow\n")
             }
             writer.flush()
         }

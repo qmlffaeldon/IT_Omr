@@ -144,7 +144,16 @@ class ResultsActivity : AppCompatActivity() {
             val listItems = mutableListOf<ResultListItem>()
 
             for ((examCode, group) in grouped) {
-                val expectedElements = ExamConfigurations.getTestNumbersForTestType(examCode)
+                // Get the base graded elements (1, 2, 3... and 99 for Code)
+                val baseElements = ExamConfigurations.getTestNumbersForTestType(examCode)
+
+                // Artificially append 98 for the UI to draw the CompleteRow checkbox
+                val expectedElements = if (examCode == "TYPEA-080910COD" || examCode == "MORSE-CODE") {
+                    baseElements + listOf(98)
+                } else {
+                    baseElements
+                }
+
                 listItems.add(ResultListItem.Header(examCode, expectedElements))
                 for (exam in group) {
                     listItems.add(ResultListItem.Row(exam, expectedElements))
@@ -363,9 +372,14 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
 
             for (elementNum in item.elements) {
                 if (elementNum == 98) {
-                    val cb = CheckBox(container.context).apply {
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weightPerDynamicColumn)
+                    // Wrap the CheckBox in a LinearLayout to perfectly center the box itself
+                    val wrapper = LinearLayout(container.context).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weightPerDynamicColumn)
                         gravity = Gravity.CENTER
+                    }
+
+                    val cb = CheckBox(container.context).apply {
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
                         // Map String to Checkbox state
                         isChecked = exam.completeRow == "Yes"
@@ -375,12 +389,18 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
                             exam.completeRow = if (isChecked) "Yes" else "No"
                         }
                     }
-                    container.addView(cb)
+                    wrapper.addView(cb)
+                    container.addView(wrapper)
+
                 } else {
                     val et = EditText(container.context).apply {
                         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weightPerDynamicColumn)
                         inputType = InputType.TYPE_CLASS_NUMBER
                         gravity = Gravity.CENTER
+
+                        // Enforce consistent text size and color to match the TextView/Spinner
+                        textSize = 16f
+                        setTextColor(android.graphics.Color.BLACK)
 
                         val score = elementMap[elementNum]?.score?.toString() ?: ""
                         setText(score)
