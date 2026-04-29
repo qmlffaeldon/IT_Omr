@@ -28,12 +28,12 @@ data class ExamResultsEntity(
     var setNumber: Int,
     var seatNumber: Int,
     val totalScore: Int,
-    val isAbsent: Boolean = false,
+    var isAbsent: Boolean = false,
     val dateTaken: Long = System.currentTimeMillis(),
     var examDate: String? = "",
     var region: String? = "",
     var placeOfExam: String? = "",
-    var completeRow: String = "No"
+    var completeRow: String = ""
 )
 
 

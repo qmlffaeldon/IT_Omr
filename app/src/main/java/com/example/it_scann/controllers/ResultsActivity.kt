@@ -224,6 +224,14 @@ class ResultsActivity : AppCompatActivity() {
                         item.exam.exam.examDate = date
                         item.exam.exam.region = regionCode
                         item.exam.exam.placeOfExam = place
+
+                        if (item.exam.exam.examCode != "TYPEA-080910COD" && item.exam.exam.examCode != "MORSE-CODE") {
+                            item.exam.exam.completeRow = ""
+                        } else if (item.exam.exam.completeRow.isEmpty()) {
+                            // If it's a code exam but currently empty, default it to No
+                            item.exam.exam.completeRow = "No"
+                        }
+
                         db.answerKeyDao().updateExamResult(item.exam.exam)
 
                         for (element in item.exam.elements) {
@@ -296,7 +304,8 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
         return if (viewType == TYPE_HEADER) {
             HeaderViewHolder(inflater.inflate(R.layout.item_result_header, parent, false))
         } else {
-            RowViewHolder(inflater.inflate(R.layout.item_result_row, parent, false))
+            // Pass 'this' adapter reference to the RowViewHolder
+            RowViewHolder(inflater.inflate(R.layout.item_result_row, parent, false), this)
         }
     }
 
@@ -342,7 +351,7 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
         }
     }
 
-    class RowViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+    class RowViewHolder(view: View, private val adapter: ResultsAdapter) : RecyclerView.ViewHolder(view) {
         private val container: LinearLayout = view.findViewById(R.id.rowContainer)
         private val tvSeat: TextView = view.findViewById(R.id.tvSeat)
         private val spSet: Spinner = view.findViewById(R.id.spSet)
@@ -365,76 +374,112 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
                 override fun onNothingSelected(p0: AdapterView<*>?) {}
             }
 
+            // --- ABSENT LONG-PRESS LOGIC ---
+            tvSeat.setOnLongClickListener {
+                val action = if (exam.isAbsent) "Present" else "Absent"
+                androidx.appcompat.app.AlertDialog.Builder(itemView.context)
+                    .setTitle("Mark as $action")
+                    .setMessage("Are you sure you want to mark Seat ${exam.seatNumber} as $action?")
+                    .setPositiveButton("Yes") { _, _ ->
+                        exam.isAbsent = !exam.isAbsent
+                        if (exam.isAbsent) {
+                            exam.completeRow = "" // Clear the row completion if absent
+                        } else if (exam.examCode == "TYPEA-080910COD" || exam.examCode == "MORSE-CODE") {
+                            exam.completeRow = "No" // Bring back default if it's a code exam
+                        }
+                        // Refresh this specific row to apply UI changes
+                        adapter.notifyItemChanged(bindingAdapterPosition)
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+                true
+            }
+
             // Keep only Seat and Set
             while (container.childCount > 2) container.removeViewAt(2)
 
             val weightPerDynamicColumn = 70f / item.elements.size
 
-            for (elementNum in item.elements) {
-                if (elementNum == 98) {
-                    // Wrap the CheckBox in a LinearLayout to perfectly center the box itself
-                    val wrapper = LinearLayout(container.context).apply {
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weightPerDynamicColumn)
-                        gravity = Gravity.CENTER
-                    }
+            // --- UI BRANCH: ABSENT vs PRESENT ---
+            if (exam.isAbsent) {
+                // 1. Change Background to Pale Red
+                container.setBackgroundColor(android.graphics.Color.parseColor("#FFCDD2"))
 
-                    val cb = CheckBox(container.context).apply {
-                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                // 2. Add single "ABSENT" TextView
+                val tvAbsent = TextView(container.context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 70f)
+                    text = "ABSENT"
+                    gravity = Gravity.CENTER
+                    textAlignment = View.TEXT_ALIGNMENT_CENTER
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    textSize = 16f
+                    setTextColor(android.graphics.Color.parseColor("#D32F2F")) // Dark Red text
+                }
+                container.addView(tvAbsent)
 
-                        // Map String to Checkbox state
-                        isChecked = exam.completeRow == "Yes"
+            } else {
+                // 1. Revert Background to Transparent
+                container.setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
-                        setOnCheckedChangeListener { _, isChecked ->
-                            // Map Checkbox state to String
-                            exam.completeRow = if (isChecked) "Yes" else "No"
+                // 2. Draw normal Element Fields
+                for (elementNum in item.elements) {
+                    if (elementNum == 98) {
+                        val wrapper = LinearLayout(container.context).apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weightPerDynamicColumn)
+                            gravity = Gravity.CENTER
                         }
-                    }
-                    wrapper.addView(cb)
-                    container.addView(wrapper)
 
-                } else {
-                    val et = EditText(container.context).apply {
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weightPerDynamicColumn)
-                        inputType = InputType.TYPE_CLASS_NUMBER
-                        gravity = Gravity.CENTER
+                        val cb = CheckBox(container.context).apply {
+                            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
-                        // Enforce consistent text size and color to match the TextView/Spinner
-                        textSize = 16f
-                        setTextColor(android.graphics.Color.BLACK)
-
-                        val score = elementMap[elementNum]?.score?.toString() ?: ""
-                        setText(score)
-
-                        addTextChangedListener(object : TextWatcher {
-                            override fun afterTextChanged(s: Editable?) {
-                                val newScore = s?.toString()?.toIntOrNull() ?: 0
-
-                                // Limit validation and highlighting
-                                if (newScore > 25) {
-                                    setBackgroundColor(android.graphics.Color.parseColor("#FFCDD2")) // Light Red Highlight
-                                    Toast.makeText(context, "Maximum score is only up to 25", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                }
-
-                                val existingEntity = elementMap[elementNum]
-                                if (existingEntity != null) {
-                                    val updatedEntity = existingEntity.copy(score = newScore)
-                                    elementMap[elementNum] = updatedEntity
-                                    val mutableList = item.exam.elements as MutableList
-                                    val index = mutableList.indexOfFirst { it.elementNumber == elementNum }
-                                    if(index != -1) mutableList[index] = updatedEntity
-                                } else {
-                                    val newEntity = ElementScoreEntity(examResultId = exam.id, elementNumber = elementNum, score = newScore)
-                                    (item.exam.elements as MutableList).add(newEntity)
-                                    elementMap[elementNum] = newEntity
-                                }
+                            isChecked = exam.completeRow == "Yes"
+                            setOnCheckedChangeListener { _, isChecked ->
+                                exam.completeRow = if (isChecked) "Yes" else "No"
                             }
-                            override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
-                            override fun onTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
-                        })
+                        }
+                        wrapper.addView(cb)
+                        container.addView(wrapper)
+                    } else {
+                        val et = EditText(container.context).apply {
+                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weightPerDynamicColumn)
+                            inputType = InputType.TYPE_CLASS_NUMBER
+                            gravity = Gravity.CENTER
+                            textSize = 16f
+                            setTextColor(android.graphics.Color.BLACK)
+
+                            val score = elementMap[elementNum]?.score?.toString() ?: ""
+                            setText(score)
+
+                            addTextChangedListener(object : TextWatcher {
+                                override fun afterTextChanged(s: Editable?) {
+                                    val newScore = s?.toString()?.toIntOrNull() ?: 0
+
+                                    if (newScore > 25) {
+                                        setBackgroundColor(android.graphics.Color.parseColor("#FFCDD2"))
+                                        Toast.makeText(context, "Maximum score is only up to 25", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                    }
+
+                                    val existingEntity = elementMap[elementNum]
+                                    if (existingEntity != null) {
+                                        val updatedEntity = existingEntity.copy(score = newScore)
+                                        elementMap[elementNum] = updatedEntity
+                                        val mutableList = item.exam.elements as MutableList
+                                        val index = mutableList.indexOfFirst { it.elementNumber == elementNum }
+                                        if (index != -1) mutableList[index] = updatedEntity
+                                    } else {
+                                        val newEntity = ElementScoreEntity(examResultId = exam.id, elementNumber = elementNum, score = newScore)
+                                        (item.exam.elements as MutableList).add(newEntity)
+                                        elementMap[elementNum] = newEntity
+                                    }
+                                }
+                                override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+                                override fun onTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+                            })
+                        }
+                        container.addView(et)
                     }
-                    container.addView(et)
                 }
             }
         }

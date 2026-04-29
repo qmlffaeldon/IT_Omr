@@ -57,6 +57,8 @@ import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import java.util.Locale
+
 class CameraScanActivity : AppCompatActivity() {
 
     private lateinit var topCard: CardView
@@ -387,14 +389,48 @@ class CameraScanActivity : AppCompatActivity() {
                     append("Exam: $examCode\n")
                     append("Seat: $seatNumber  |  Set: $setNumber\n")
                     append("----------------\n")
+
+                    var hasFailingElement = false
+
                     scores.toSortedMap().forEach { (testNumber, score) ->
                         val elementName = columns.getOrNull(
                             testNumbers.indexOf(testNumber)
                         )?.name ?: "Elem $testNumber"
-                        append("$elementName: $score / 25\n")
+
+                        // 1. Percentage equivalent (score * 4 since max is 25)
+                        val percent = score * 4
+
+                        if (score < 13) {
+                            hasFailingElement = true
+                        }
+
+                        append("$elementName: $score / 25 ($percent%)\n")
                     }
                     append("----------------\n")
-                    append("Total: $totalScore / ${scores.size * 25}")
+                    append("Total: $totalScore / ${scores.size * 25}\n")
+
+                    // 2. Average Score %
+                    // (Sum of all scores * 4) / number of elements
+                    val averagePercent = if (scores.isNotEmpty()) {
+                        (totalScore.toDouble() * 4) / scores.size
+                    } else 0.0
+
+                    // Format to 2 decimal places
+                    val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
+                    append("Average: $formattedAverage%\n")
+
+                    // 3. Remarks Result
+                    val isFailed = averagePercent < 72.0 || hasFailingElement
+                    val remarks = if (isFailed) {
+                        if (examCode == "TYPEC-020304" || examCode == "TYPEC-0304") {
+                            "Downgraded to Element D"
+                        } else {
+                            "Failed"
+                        }
+                    } else {
+                        "Passed"
+                    }
+                    append("Remarks: $remarks")
                 }
 
                 delay(500)
