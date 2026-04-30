@@ -58,6 +58,7 @@ import com.google.android.material.chip.ChipGroup
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import java.util.Locale
+import androidx.core.graphics.toColorInt
 
 class CameraScanActivity : AppCompatActivity() {
 
@@ -115,8 +116,8 @@ class CameraScanActivity : AppCompatActivity() {
             galleryLauncher.launch("image/*")
         }
 
-        topCard = findViewById<CardView>(R.id.cardTopPopup)
-        bottomCard = findViewById<CardView>(R.id.cardBottomPopup)
+        topCard = findViewById(R.id.cardTopPopup)
+        bottomCard = findViewById(R.id.cardBottomPopup)
 
         val flashBtn = findViewById<ImageButton>(R.id.btn_flash)
         // 2. Updated Flash Button Touch Listener
@@ -165,7 +166,7 @@ class CameraScanActivity : AppCompatActivity() {
             showManualAbsenteeDialog(this) { absenteesList ->
                 lifecycleScope.launch {
                     try {
-                        val db = AppDatabase.Companion.getDatabase(this@CameraScanActivity)
+                        val db = AppDatabase.getDatabase(this@CameraScanActivity)
 
                         // Loop through the list and save each as an absent entity
                         for (seat in absenteesList) {
@@ -290,7 +291,7 @@ class CameraScanActivity : AppCompatActivity() {
                                                 lifecycleScope.launch {
                                                     try {
                                                         val db =
-                                                            AppDatabase.Companion.getDatabase(this@CameraScanActivity)
+                                                            AppDatabase.getDatabase(this@CameraScanActivity)
                                                         val absentResult = ExamResultsEntity(
                                                             examCode = validation.qrData?.testType
                                                                 ?: "UNKNOWN",
@@ -341,7 +342,7 @@ class CameraScanActivity : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private val answerKeyDao by lazy {
-        AppDatabase.Companion.getDatabase(this).answerKeyDao()
+        AppDatabase.getDatabase(this).answerKeyDao()
     }
 
     // Change signature
@@ -360,7 +361,7 @@ class CameraScanActivity : AppCompatActivity() {
             val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao, examCode, setNumber)
 
             try {
-                val db = AppDatabase.Companion.getDatabase(this@CameraScanActivity)
+                val db = AppDatabase.getDatabase(this@CameraScanActivity)
                 val totalScore = scores.values.sum()
 
                 val examResult = ExamResultsEntity(
@@ -580,7 +581,7 @@ class CameraScanActivity : AppCompatActivity() {
             FlashMode.TORCH -> {
                 camera?.cameraControl?.enableTorch(true)
                 flashBtn.setImageResource(R.drawable.ic_flash_on)
-                flashBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#87CEFA"))
+                flashBtn.backgroundTintList = android.content.res.ColorStateList.valueOf("#87CEFA".toColorInt())
             }
         }
     }
@@ -782,7 +783,7 @@ class CameraScanActivity : AppCompatActivity() {
                                                         lifecycleScope.launch {
                                                             try {
                                                                 val db =
-                                                                    AppDatabase.Companion.getDatabase(
+                                                                    AppDatabase.getDatabase(
                                                                         this@CameraScanActivity
                                                                     )
 

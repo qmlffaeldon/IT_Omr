@@ -9,7 +9,7 @@
     <com.google.android.material.textview.MaterialTextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Manual Absentee Entry"
+        android:text="@string/text_manual_absentee_entry"
         android:textSize="20sp"
         android:textStyle="bold"
         android:layout_marginBottom="8dp"/>
@@ -17,7 +17,7 @@
     <com.google.android.material.textview.MaterialTextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Type a seat number (e.g., 5) or range (e.g., 10-15) and press Space or Enter."
+        android:text="@string/text_absentee_entry_instructions"
         android:layout_marginBottom="16dp"
         android:textSize="13sp"
         android:textColor="#757575"/>
@@ -28,7 +28,7 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="16dp"
         app:hintEnabled="true"
-        android:hint="Seat No. or Range">
+        android:hint="@string/hint_seat_number_or_range">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/etAbsentInput"
@@ -40,7 +40,7 @@
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
         android:layout_marginBottom="24dp"
         android:layout_weight="1"
         android:fadeScrollbars="false">
@@ -64,7 +64,7 @@
             style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Cancel"
+            android:text="@string/btn_text_cancel"
             android:textColor="#757575"
             android:layout_marginEnd="8dp"/>
 
@@ -72,6 +72,6 @@
             android:id="@+id/btnSaveAbsentees"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Save Absentees"/>
+            android:text="@string/btn_save_absentees"/>
     </LinearLayout>
 </LinearLayout>

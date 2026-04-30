@@ -2,12 +2,14 @@
   <dictionary name="project">
     <words>
       <w>bolditalic</w>
+      <w>cefa</w>
       <w>clahe</w>
       <w>diag</w>
       <w>rects</w>
       <w>roec</w>
       <w>startx</w>
       <w>starty</w>
+      <w>typec</w>
     </words>
   </dictionary>
 </component>

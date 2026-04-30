@@ -70,6 +70,23 @@
         libero vel nunc consequat, quis tincidunt nisl eleifend. Cras bibendum enim a justo luctus
         vestibulum. Fusce dictum libero quis erat maximus, vitae volutpat diam dignissim.
     </string>
+    <string name="exam_date_title">Exam Date</string>
+    <string name="date_format_hint">MM/DD/YYYY</string>
+    <string name="region_title">Region</string>
+    <string name="place_of_exam_title">Place of Exam</string>
+    <string name="place_of_exam_hint">e.g. TIP QC</string>
+    <string name="no_data_text">No data yet</string>
+    <string name="btn_text_change_exam_types">Change Exam Types</string>
+    <string name="content_desc_menu_button">Results Screen Menu Button</string>
+    <string name="hint_select_region">Select Region</string>
+    <string name="btn_text_save_changes">Save Changes</string>
+    <string name="btn_text_delete_all">Delete All</string>
+    <string name="btn_text_export_to_csv">Export to CSV</string>
+    <string name="text_manual_absentee_entry">Manual Absentee Entry</string>
+    <string name="text_absentee_entry_instructions">Type a seat number (e.g., 5) or range (e.g., 10-15) and press Space or Enter.</string>
+    <string name="hint_seat_number_or_range">Seat No. or Range</string>
+    <string name="btn_text_cancel">Cancel</string>
+    <string name="btn_save_absentees">Save Absentees</string>
 
     <string-array name="element_tests">
         <item>Element 1</item>
