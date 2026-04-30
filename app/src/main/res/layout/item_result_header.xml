@@ -1,11 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="16dp" android:paddingBottom="4dp">
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingTop="16dp"
+    android:paddingBottom="4dp">
 
-    <TextView android:id="@+id/tvHeaderTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:textStyle="bold" android:textSize="16sp" android:textColor="@color/black" android:gravity="center" android:layout_marginBottom="8dp"/>
+    <TextView
+        android:id="@+id/tvHeaderTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:gravity="center"
+        android:textColor="@color/black"
+        android:textSize="16sp"
+        android:textStyle="bold" />
 
-    <LinearLayout android:id="@+id/headerColumnsContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:weightSum="100" android:divider="@drawable/divider_vertical" android:showDividers="middle" android:background="#EEEEEE" android:paddingVertical="4dp">
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="15" android:text="Seat" android:textStyle="bold" android:gravity="center"/>
-        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="15" android:text="Set" android:textStyle="bold" android:gravity="center"/>
+    <LinearLayout
+        android:id="@+id/headerColumnsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#EEEEEE"
+        android:divider="@drawable/divider_vertical"
+        android:orientation="horizontal"
+        android:paddingVertical="4dp"
+        android:showDividers="middle"
+        android:weightSum="100">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="15"
+            android:gravity="center"
+            android:text="Seat"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="15"
+            android:gravity="center"
+            android:text="Set"
+            android:textStyle="bold" />
     </LinearLayout>
 </LinearLayout>

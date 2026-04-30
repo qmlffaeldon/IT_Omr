@@ -1,8 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:weightSum="100" android:gravity="center_vertical" android:paddingVertical="8dp" android:divider="@drawable/divider_vertical" android:showDividers="middle">
-    <TextView android:id="@+id/tvSeat" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="20" android:gravity="center" android:textStyle="bold"/>
-    <Spinner android:id="@+id/spSet" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="20" android:gravity="center" android:background="@null"/>
-    <TextView android:id="@+id/tvType" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="40" android:gravity="center"/>
-    <CheckBox android:id="@+id/cbSelect" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="20" android:gravity="center"/>
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:divider="@drawable/divider_vertical"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingVertical="8dp"
+    android:showDividers="middle"
+    android:weightSum="100">
+
+    <TextView
+        android:id="@+id/tvSeat"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="20"
+        android:gravity="center"
+        android:textStyle="bold" />
+
+    <Spinner
+        android:id="@+id/spSet"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="20"
+        android:background="@null"
+        android:gravity="center" />
+
+    <TextView
+        android:id="@+id/tvType"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="40"
+        android:gravity="center" />
+
+    <CheckBox
+        android:id="@+id/cbSelect"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="20"
+        android:gravity="center" />
 </LinearLayout>

@@ -1,7 +1,5 @@
 package com.example.it_scann.controllers
 
-import android.content.ContentValues
-import android.content.Context
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
@@ -28,7 +26,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        setContentView(R.layout.home_activity)
+        setContentView(R.layout.activity_home_activity)
 
         Log.d("MainActivity", "OpenCV init: ${OpenCVLoader.initDebug()}")
 

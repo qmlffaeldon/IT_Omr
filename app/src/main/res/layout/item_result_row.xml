@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/rowContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:weightSum="100" android:gravity="center_vertical" android:paddingVertical="4dp" android:divider="@drawable/divider_vertical" android:showDividers="middle">
+    android:id="@+id/rowContainer"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:divider="@drawable/divider_vertical"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingVertical="4dp"
+    android:showDividers="middle"
+    android:weightSum="100">
 
     <TextView
         android:id="@+id/tvSeat"
@@ -8,8 +16,16 @@
         android:layout_height="wrap_content"
         android:layout_weight="15"
         android:gravity="center"
-        android:textStyle="bold"
+        android:textColor="@android:color/black"
         android:textSize="16sp"
-        android:textColor="@android:color/black" />
-    <Spinner android:id="@+id/spSet" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="15" android:gravity="center" android:background="@null" android:textAlignment="center"/>
+        android:textStyle="bold" />
+
+    <Spinner
+        android:id="@+id/spSet"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="15"
+        android:background="@null"
+        android:gravity="center"
+        android:textAlignment="center" />
 </LinearLayout>

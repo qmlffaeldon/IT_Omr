@@ -9,12 +9,12 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Answer Key"
-        android:textSize="24sp"
-        android:textStyle="bold"
         android:layout_gravity="center"
         android:layout_marginTop="40dp"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="16dp"
+        android:text="@string/text_answer_key"
+        android:textSize="24sp"
+        android:textStyle="bold" />
 
 
     <EditText
@@ -41,15 +41,15 @@
         android:id="@+id/questionRecycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"/>
+        android:layout_weight="1" />
 
     <Button
         android:id="@+id/submitButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Submit Answer Key"
+        android:layout_marginTop="16dp"
         android:layout_marginBottom="40dp"
-        android:layout_marginTop="16dp" />
+        android:text="Submit Answer Key" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/floatingActionButton"

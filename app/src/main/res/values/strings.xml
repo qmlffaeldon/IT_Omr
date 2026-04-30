@@ -87,6 +87,12 @@
     <string name="hint_seat_number_or_range">Seat No. or Range</string>
     <string name="btn_text_cancel">Cancel</string>
     <string name="btn_save_absentees">Save Absentees</string>
+    <string name="text_answer_key">Answer Key</string>
+    <string name="content_desc_manual_absentee_entry">Manual Absentee Entry</string>
+    <string name="text_processing">Processing image…</string>
+    <string name="help_change_exam">Select rows to change their Exam Type. Note: Changing an exam type will permanently wipe its existing element scores.</string>
+    <string name="btn_text_change">Change</string>
+    <string name="btn_text_save_and_return"><![CDATA[Save & Return]]></string>
 
     <string-array name="element_tests">
         <item>Element 1</item>

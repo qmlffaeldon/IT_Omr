@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -26,20 +25,20 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:elevation="10dp"
-        app:layout_constraintTop_toTopOf="@id/previewView"
         app:layout_constraintBottom_toBottomOf="@id/previewView"
+        app:layout_constraintEnd_toEndOf="@id/previewView"
         app:layout_constraintStart_toStartOf="@id/previewView"
-        app:layout_constraintEnd_toEndOf="@id/previewView" />
+        app:layout_constraintTop_toTopOf="@id/previewView" />
 
     <ImageButton
         android:id="@+id/btn_capture"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:scaleType="fitCenter"
-        android:padding="25dp"
         android:background="@drawable/ripple_effect_white"
         android:contentDescription="@string/content_desc_capture"
         android:elevation="7dp"
+        android:padding="25dp"
+        android:scaleType="fitCenter"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintDimensionRatio="1:1"
         app:layout_constraintHorizontal_bias="0.5"
@@ -54,11 +53,11 @@
         android:id="@+id/btn_upload"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:scaleType="fitCenter"
-        android:padding="10dp"
         android:background="@drawable/ripple_effect_white"
         android:contentDescription="@string/content_desc_gallery"
         android:elevation="7dp"
+        android:padding="10dp"
+        android:scaleType="fitCenter"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintDimensionRatio="1:1"
         app:layout_constraintHorizontal_bias="0.15"
@@ -72,11 +71,11 @@
         android:id="@+id/btn_flash"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:scaleType="fitCenter"
-        android:padding="15dp"
         android:background="@drawable/ripple_effect_yellow"
         android:contentDescription="@string/content_desc_flash"
         android:elevation="7dp"
+        android:padding="15dp"
+        android:scaleType="fitCenter"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintDimensionRatio="1:1"
         app:layout_constraintHorizontal_bias="0.85"
@@ -91,24 +90,24 @@
         android:id="@+id/cardTopPopup"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
         android:visibility="gone"
         app:cardBackgroundColor="#179E1B"
         app:cardCornerRadius="8dp"
         app:cardElevation="8dp"
-        app:strokeWidth="0dp"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintWidth_percent="0.9"
-        android:layout_marginTop="32dp">
+        app:strokeWidth="0dp">
 
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:padding="16dp"
             android:text="@string/card_popup_scan_status"
             android:textColor="#FFFFFF"
-            android:padding="16dp"
-            android:textStyle="bold"/>
+            android:textStyle="bold" />
     </com.google.android.material.card.MaterialCardView>
 
     <!--  Card popup for results  -->
@@ -116,51 +115,51 @@
         android:id="@+id/cardBottomPopup"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
         android:visibility="gone"
-        app:strokeWidth="0dp"
         app:cardBackgroundColor="#FFFFFF"
         app:cardCornerRadius="8dp"
         app:cardElevation="8dp"
-        app:layout_constraintTop_toBottomOf="@id/cardTopPopup"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/cardTopPopup"
         app:layout_constraintWidth_percent="0.9"
-        android:layout_marginTop="16dp">
+        app:strokeWidth="0dp">
 
         <com.google.android.material.button.MaterialButton
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:padding="16dp"
             android:text="@string/card_popup_button_text_scan_results"
             android:textColor="#000000"
-            android:padding="16dp"
-            app:backgroundTint="#00000000"/>
+            app:backgroundTint="#00000000" />
     </com.google.android.material.card.MaterialCardView>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_back"
         android:layout_width="50dp"
         android:layout_height="50dp"
+        android:layout_marginVertical="15dp"
         android:backgroundTint="#00000000"
+        android:contentDescription="@string/content_desc_back"
         app:icon="@drawable/ic_back_arrow"
         app:iconGravity="textStart"
-        android:contentDescription="@string/content_desc_back"
         app:iconSize="30dp"
-        android:layout_marginVertical="15dp"
-        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintVertical_bias="0.0"
-        app:layout_constraintHorizontal_bias="0.05"/>
+        app:layout_constraintHorizontal_bias="0.05"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.0" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_manual_absent"
         android:layout_width="50dp"
         android:layout_height="50dp"
-        android:layout_marginVertical="15dp"
         android:layout_marginHorizontal="15dp"
+        android:layout_marginVertical="15dp"
         android:backgroundTint="#00000000"
-        android:contentDescription="Manual Absentee Entry"
+        android:contentDescription="@string/content_desc_manual_absentee_entry"
         app:icon="@drawable/ic_person_remove"
         app:iconGravity="textStart"
         app:iconSize="30dp"
@@ -174,15 +173,15 @@
         android:id="@+id/loadingOverlay"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:visibility="gone"
         android:clickable="true"
         android:focusable="true"
+        android:visibility="gone"
         app:cardBackgroundColor="#AA000000"
         app:cardElevation="0dp"
-        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintTop_toTopOf="parent">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -193,19 +192,18 @@
             <com.google.android.material.progressindicator.CircularProgressIndicator
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:indeterminate="true"
-                />
+                android:indeterminate="true" />
 
 
             <com.google.android.material.textview.MaterialTextView
                 android:id="@+id/loadingText"
-                android:layout_marginTop="16dp"
-                android:text="Processing image…"
-                android:textColor="@android:color/white"
-                android:textSize="16sp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textAlignment="center"/>
+                android:layout_marginTop="16dp"
+                android:text="@string/text_processing"
+                android:textAlignment="center"
+                android:textColor="@android:color/white"
+                android:textSize="16sp" />
 
 
         </LinearLayout>

@@ -9,9 +9,9 @@
         android:id="@+id/questionText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginBottom="4dp"
         android:text="Question 1"
-        android:textSize="16sp"
-        android:layout_marginBottom="4dp"/>
+        android:textSize="16sp" />
 
     <RadioGroup
         android:id="@+id/radioGroup"
@@ -23,25 +23,25 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="A"/>
+            android:text="A" />
 
         <RadioButton
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="B"/>
+            android:text="B" />
 
         <RadioButton
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="C"/>
+            android:text="C" />
 
         <RadioButton
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="D"/>
+            android:text="D" />
     </RadioGroup>
 
 </LinearLayout>

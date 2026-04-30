@@ -125,7 +125,7 @@
             android:text="@string/btn_text_save_changes"
             android:textColor="@android:color/white"
             app:backgroundTint="#515CB3"
-            tools:ignore="VisualLintBounds, VisualLintPartiallyHidden"/>
+            tools:ignore="VisualLintBounds, VisualLintPartiallyHidden" />
 
         <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
             android:id="@+id/fabDelete"
@@ -152,11 +152,11 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="24dp"
+        android:contentDescription="@string/content_desc_menu_button"
         android:src="@android:drawable/ic_menu_sort_by_size"
         app:backgroundTint="#515CB3"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:tint="@android:color/white"
-        android:contentDescription="@string/content_desc_menu_button" />
+        app:tint="@android:color/white" />
 </androidx.constraintlayout.widget.ConstraintLayout>
