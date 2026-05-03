@@ -106,7 +106,23 @@ fun analyzeImageFile(
         }
 
         val detectedAnswers = mutableListOf<DetectedAnswer>()
-        val debugBitmap = processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, onProgress)
+
+        // --- NEW: Fetch the Answer Key for drawing ---
+        val db = com.example.it_scann.database.AppDatabase.Companion.getDatabase(context)
+
+        // 1. Call the correct DAO function that returns a List of all answer keys for this exam/set
+        val answerKeysList = kotlinx.coroutines.runBlocking {
+            db.answerKeyDao().getAnswerKeysForExam(
+                examCode = qrData?.testType ?: "",
+                set = qrData?.setNumber ?: 1
+            )
+        }
+
+        // 2. Map the testNumber (e.g., Element 1) to its full answerString (e.g., "ABCDA...")
+        val correctAnswersMap = answerKeysList.associate { it.testNumber to it.answerString }
+
+        // 3. Pass the Map<Int, String> into the ensemble function
+        val debugBitmap = processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, correctAnswersMap, onProgress)
 
         warped.release()
         rotated.release()
@@ -238,7 +254,7 @@ fun processAnswerSheetWithQRData(
     qrData: QRCodeData?,
     answers: MutableList<DetectedAnswer>,
     params: OMRParams,
-    sweepName: String // <-- NEW: Identifies which sweep is logging
+    sweepName: String
 ) {
     val columns   = ExamConfigurations.getColumnsForTestType(qrData?.testType)
     val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
@@ -405,7 +421,22 @@ fun processAnswerSheetWithQRData(
             }
             Log.d("OMR_METRICS", "[$sweepName] Test $realTestNumber Q${q + 1} -> Det: $detStr | 1st: $bestChar (${best.second.fmt()}), 2nd: $secondChar (${second.second.fmt()})")
 
-            answers.add(DetectedAnswer(testNumber = realTestNumber, questionNumber = q + 1, detected = detectedValue))
+            // --- NEW: Track all bubbles that passed the ink threshold ---
+            val shaded = mutableListOf<Int>()
+            for (c in 0 until choices) {
+                if (fill[c] >= params.hardMinMark) {
+                    shaded.add(c + 1) // Save 1-based index (1=A, 2=B, etc.)
+                }
+            }
+
+            answers.add(
+                DetectedAnswer(
+                    testNumber = realTestNumber,
+                    questionNumber = q + 1,
+                    detected = detectedValue,
+                    shadedBubbles = shaded // <-- Save them here
+                )
+            )
         }
         colMat.release()
     }
@@ -416,6 +447,7 @@ fun processAnswerSheetWithEnsemble(
     warped: Mat,
     qrData: QRCodeData?,
     finalAnswers: MutableList<DetectedAnswer>,
+    correctAnswersMap: Map<Int, String>,
     onProgress: ((String) -> Unit)? = null // <-- Ensure this is passed
 ): Bitmap {
     onProgress?.invoke("Applying high-contrast threshold...")
@@ -447,7 +479,8 @@ fun processAnswerSheetWithEnsemble(
         processAnswerSheetWithQRData(context, thresh, stepDebugMat, qrData, scanAnswers, params, "Sweep ${index + 1}")
         allScans.add(scanAnswers)
 
-        if (DEBUG_DRAW) saveDebugMat(context, stepDebugMat, "04_detected_sweep_$index")
+        // Generate and save debugMat for each ensemble
+        // if (DEBUG_DRAW) saveDebugMat(context, stepDebugMat, "04_detected_sweep_$index")
         stepDebugMat.release()
     }
 
@@ -458,7 +491,8 @@ fun processAnswerSheetWithEnsemble(
 
     processAnswerSheetWithQRData(context, thresh, strayDebugMat, qrData, strayAnswers, strayParams, "Stray Check")
 
-    if (DEBUG_DRAW) saveDebugMat(context, strayDebugMat, "04_detected_stray")
+    // Generate and save debugMat for stray detection.
+    //if (DEBUG_DRAW) saveDebugMat(context, strayDebugMat, "04_detected_stray")
     strayDebugMat.release()
     thresh.release()
 
@@ -523,11 +557,16 @@ fun processAnswerSheetWithEnsemble(
 
         Log.d("OMR_ENSEMBLE", "Test ${allScans.first()[i].testNumber} Q${allScans.first()[i].questionNumber} | Votes: $voteChars | Stray: $strayChar -> FINAL: $finalStr")
 
+        // Merge all shaded bubbles detected across all sweeps for this specific question
+        val allShadedThisQuestion = allScans.flatMap { it[i].shadedBubbles }.distinct()
+
         finalAnswers.add(
             DetectedAnswer(
                 testNumber     = allScans.first()[i].testNumber,
                 questionNumber = allScans.first()[i].questionNumber,
-                detected       = finalVote
+                detected       = finalVote,
+                consensus      = validConsensus,
+                shadedBubbles  = allShadedThisQuestion // <-- Save to the final result
             )
         )
     }
@@ -555,16 +594,72 @@ fun processAnswerSheetWithEnsemble(
 
         for (q in 0 until questions) {
             if (answerIndex >= finalAnswers.size) break
-            val detectedValue = finalAnswers[answerIndex].detected
+
+            val answer = finalAnswers[answerIndex]
+            val detectedValue = answer.detected
+            val consensusScore = answer.consensus
+
+            // --- NEW: Parse the correct answer from the answer string ---
+            val answerString = correctAnswersMap[answer.testNumber] ?: ""
+            // Grab the character for this specific question (q is 0-indexed)
+            val correctChar = if (q < answerString.length) answerString[q] else ' '
+
+            // Convert 'A'/'1' to 1, 'B'/'2' to 2, etc.
+            val correctAnswer = when (correctChar.uppercaseChar()) {
+                'A', '1' -> 1
+                'B', '2' -> 2
+                'C', '3' -> 3
+                'D', '4' -> 4
+                else -> -1
+            }
+
+            val isCorrect = (detectedValue == correctAnswer)
+
             val centerY = yStart + q * qHeight + qHeight / 2
 
             if (detectedValue in 1..choices) {
-                // Green Circle for a valid single mark (OpenCV Android uses RGBA)
                 val cx = xStart + (detectedValue - 1) * cWidth + cWidth / 2
-                Imgproc.circle(finalDebugMat, Point(cx.toDouble(), centerY.toDouble()), 12, Scalar(0.0, 255.0, 0.0, 255.0), 3)
+                val center = Point(cx.toDouble(), centerY.toDouble())
+
+                if (isCorrect) {
+                    // CORRECT: Bright Green (5/5) or Bright Yellow (<= 4/5)
+                    val circleColor = if (consensusScore == 5) Scalar(0.0, 255.0, 0.0, 255.0) else Scalar(255.0, 255.0, 0.0, 255.0)
+                    Imgproc.circle(finalDebugMat, center, 12, circleColor, 3)
+                } else {
+                    // WRONG: Bright Red (5/5) or Bright Orange (<= 4/5)
+                    val xColor = if (consensusScore == 5) Scalar(255.0, 0.0, 127.0, 255.0) else Scalar(255.0, 165.0, 0.0, 255.0)
+                    Imgproc.drawMarker(finalDebugMat, center, xColor, Imgproc.MARKER_TILTED_CROSS, 20, 5)
+
+                    // MISSED CORRECT: Draw Purple Ring around the actual correct answer
+                    if (correctAnswer in 1..choices) {
+                        val correctCx = xStart + (correctAnswer - 1) * cWidth + cWidth / 2
+                        val correctCenter = Point(correctCx.toDouble(), centerY.toDouble())
+                        Imgproc.circle(finalDebugMat, correctCenter, 15, Scalar(0.0, 255.0, 255.0, 255.0), 3)
+                    }
+                }
+
             } else if (detectedValue <= -2) {
-                // Red Line across the entire row for double marks or invalid marks
+                // DOUBLE/INVALID: Red Line across the entire row
                 Imgproc.line(finalDebugMat, Point(xStart.toDouble(), centerY.toDouble()), Point(xEnd.toDouble(), centerY.toDouble()), Scalar(255.0, 0.0, 0.0, 255.0), 4)
+
+                // Red Boxes around the specific bubbles that caused the conflict
+                answer.shadedBubbles.forEach { choice ->
+                    if (choice in 1..choices) {
+                        val cx = xStart + (choice - 1) * cWidth + cWidth / 2
+
+                        // Calculate box corners using the column/row dimensions
+                        val p1 = Point(cx - cWidth / 3.0, centerY - qHeight / 3.0)
+                        val p2 = Point(cx + cWidth / 3.0, centerY + qHeight / 3.0)
+                        Imgproc.rectangle(finalDebugMat, p1, p2, Scalar(255.0, 0.0, 0.0, 255.0), 3)
+                    }
+                }
+
+                // MISSED CORRECT (Even if they double-marked): Draw Purple Ring
+                if (correctAnswer in 1..choices) {
+                    val correctCx = xStart + (correctAnswer - 1) * cWidth + cWidth / 2
+                    val correctCenter = Point(correctCx.toDouble(), centerY.toDouble())
+                    Imgproc.circle(finalDebugMat, correctCenter, 15, Scalar(255.0, 0.0, 255.0, 255.0), 3)
+                }
             }
             // If -1 (Blank), draw nothing
 

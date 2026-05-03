@@ -68,9 +68,22 @@ class CameraAnalyzer(
             if (DEBUG_DRAW) saveDebugMat(context, warped, "01_warped")
 
             val detectedAnswers = mutableListOf<DetectedAnswer>()
-            processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers)
 
-            onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers))
+            // 1. Fetch the Answer Key from the database
+            val db = com.example.it_scann.database.AppDatabase.Companion.getDatabase(context)
+            val answerKeysList = kotlinx.coroutines.runBlocking {
+                db.answerKeyDao().getAnswerKeysForExam(
+                    examCode = qrData?.testType ?: "",
+                    set = qrData?.setNumber ?: 1
+                )
+            }
+            val correctAnswersMap = answerKeysList.associate { it.testNumber to it.answerString }
+
+            // 2. Pass the map and catch the generated bitmap
+            val debugBitmap = processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, correctAnswersMap)
+
+            // 3. Pass the bitmap into the OMRResult callback
+            onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers, debugBitmap))
             warped.release()
 
         } catch (e: Exception) {

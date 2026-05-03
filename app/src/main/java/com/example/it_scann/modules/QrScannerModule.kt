@@ -24,7 +24,9 @@ data class QRCodeData(
 data class DetectedAnswer(
     val testNumber: Int,
     val questionNumber: Int,
-    val detected: Int
+    val detected: Int,
+    val consensus: Int = 5,
+    val shadedBubbles: List<Int> = emptyList()
 )
 
 data class Column(
