@@ -267,7 +267,7 @@ class CameraScanActivity : AppCompatActivity() {
                         onProgress = { msg -> updateLoadingText(msg) },
                         onDetected = { result ->
                             hideLoading()
-                            onAnswersDetected(result.answers, result.qrData)
+                            onAnswersDetected(result.answers, result.qrData, result.debugBitmap)
                         },
                         onValidationError = { validation ->
                             runOnUiThread {
@@ -346,7 +346,7 @@ class CameraScanActivity : AppCompatActivity() {
     }
 
     // Change signature
-    fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>, qrData: QRCodeData?) {
+    fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>, qrData: QRCodeData?, debugBitmap: android.graphics.Bitmap?) {
         lifecycleScope.launch {
 
             val setNumber  = qrData?.setNumber ?: 1
@@ -435,9 +435,35 @@ class CameraScanActivity : AppCompatActivity() {
                 }
 
                 delay(500)
+
+                // Build a custom ScrollView to hold both text and the image
+                val scrollView = android.widget.ScrollView(this@CameraScanActivity)
+                val layout = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    setPadding(48, 24, 48, 24)
+                }
+
+                val tvMessage = android.widget.TextView(this@CameraScanActivity).apply {
+                    text = resultText
+                    textSize = 14f
+                    setTextColor(android.graphics.Color.BLACK)
+                }
+                layout.addView(tvMessage)
+
+                // Inject the generated image into the dialog
+                if (debugBitmap != null) {
+                    val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
+                        setImageBitmap(debugBitmap)
+                        adjustViewBounds = true
+                        setPadding(0, 32, 0, 0)
+                    }
+                    layout.addView(imageView)
+                }
+                scrollView.addView(layout)
+
                 AlertDialog.Builder(this@CameraScanActivity)
                     .setTitle("Results Saved ✓")
-                    .setMessage(resultText)
+                    .setView(scrollView) // Use the custom view instead of setMessage()
                     .setPositiveButton("OK", null)
                     .show()
 
@@ -758,7 +784,7 @@ class CameraScanActivity : AppCompatActivity() {
                                 onDetected = { result ->
                                     runOnUiThread {
                                         hideLoading()
-                                        onAnswersDetected(result.answers, result.qrData)
+                                        onAnswersDetected(result.answers, result.qrData, result.debugBitmap)
                                     }
                                 },
                                 onValidationError = { validation ->

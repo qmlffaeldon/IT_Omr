@@ -106,13 +106,13 @@ fun analyzeImageFile(
         }
 
         val detectedAnswers = mutableListOf<DetectedAnswer>()
-        processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, onProgress)
+        val debugBitmap = processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, onProgress)
 
         warped.release()
         rotated.release()
 
         onProgress?.invoke("Finalizing results...")
-        onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers))
+        onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers, debugBitmap))
     }
 }
 
@@ -406,21 +406,6 @@ fun processAnswerSheetWithQRData(
             Log.d("OMR_METRICS", "[$sweepName] Test $realTestNumber Q${q + 1} -> Det: $detStr | 1st: $bestChar (${best.second.fmt()}), 2nd: $secondChar (${second.second.fmt()})")
 
             answers.add(DetectedAnswer(testNumber = realTestNumber, questionNumber = q + 1, detected = detectedValue))
-
-            if (detectedValue in 1..4) {
-                val cx = xStart + (detectedValue - 1) * cWidth + cWidth / 2
-                val cy = yStart + q * qHeight + qHeight / 2
-                Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(0.0, 255.0, 0.0), 3)
-            } else if (detectedValue == -2) {
-                for (c in 0 until choices) {
-                    if (fill[c] >= params.hardMinMark) {
-                        val cx = xStart + c * cWidth + cWidth / 2
-                        val cy = yStart + q * qHeight + qHeight / 2
-                        Imgproc.circle(debugMat, Point(cx.toDouble(), cy.toDouble()), 10, Scalar(255.0, 0.0, 255.0), 3)
-                    }
-                }
-            }
-            Imgproc.rectangle(debugMat, Point(xStart.toDouble(), yStart.toDouble()), Point(xEnd.toDouble(), yEnd.toDouble()), Scalar(255.0, 0.0, 0.0), 2)
         }
         colMat.release()
     }
@@ -432,7 +417,7 @@ fun processAnswerSheetWithEnsemble(
     qrData: QRCodeData?,
     finalAnswers: MutableList<DetectedAnswer>,
     onProgress: ((String) -> Unit)? = null // <-- Ensure this is passed
-) {
+): Bitmap {
     onProgress?.invoke("Applying high-contrast threshold...")
     val staticCValue = 55.0
     val staticBlockSize = 101
@@ -546,6 +531,53 @@ fun processAnswerSheetWithEnsemble(
             )
         )
     }
+
+    onProgress?.invoke("Generating verification image...")
+
+    // --- NEW: Draw final decisions on a cloned image ---
+    val finalDebugMat = warped.clone()
+    val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
+    val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
+    val choices = 4
+
+    var answerIndex = 0
+    for (col in columns) {
+        val imgH = finalDebugMat.rows()
+        val imgW = finalDebugMat.cols()
+
+        val xStart = (imgW * col.startx).toInt().coerceIn(0, imgW - 1)
+        val xEnd = (xStart + imgW * col.width).toInt().coerceIn(xStart + 1, imgW)
+        val yStart = (imgH * col.starty).toInt().coerceIn(0, imgH - 1)
+        val yEnd = (yStart + imgH * col.height).toInt().coerceIn(yStart + 1, imgH)
+
+        val qHeight = (yEnd - yStart) / questions
+        val cWidth = (xEnd - xStart) / choices
+
+        for (q in 0 until questions) {
+            if (answerIndex >= finalAnswers.size) break
+            val detectedValue = finalAnswers[answerIndex].detected
+            val centerY = yStart + q * qHeight + qHeight / 2
+
+            if (detectedValue in 1..choices) {
+                // Green Circle for a valid single mark (OpenCV Android uses RGBA)
+                val cx = xStart + (detectedValue - 1) * cWidth + cWidth / 2
+                Imgproc.circle(finalDebugMat, Point(cx.toDouble(), centerY.toDouble()), 12, Scalar(0.0, 255.0, 0.0, 255.0), 3)
+            } else if (detectedValue <= -2) {
+                // Red Line across the entire row for double marks or invalid marks
+                Imgproc.line(finalDebugMat, Point(xStart.toDouble(), centerY.toDouble()), Point(xEnd.toDouble(), centerY.toDouble()), Scalar(255.0, 0.0, 0.0, 255.0), 4)
+            }
+            // If -1 (Blank), draw nothing
+
+            answerIndex++
+        }
+    }
+
+    // Convert the Mat to an Android Bitmap
+    val debugBitmap = androidx.core.graphics.createBitmap(finalDebugMat.cols(), finalDebugMat.rows())
+    Utils.matToBitmap(finalDebugMat, debugBitmap)
+    finalDebugMat.release()
+
+    return debugBitmap // Return the temporary image
 }
 
 private fun Double.fmt() = "%.3f".format(this)

@@ -8,8 +8,9 @@ import org.opencv.objdetect.QRCodeDetector
 
 data class OMRResult(
     val qrCode: String?,
-    val qrData: QRCodeData?,      // ← add this
-    val answers: List<DetectedAnswer>
+    val qrData: QRCodeData?,
+    val answers: List<DetectedAnswer>,
+    val debugBitmap: android.graphics.Bitmap? = null
 )
 data class QRCodeData(
     val testType: String,
