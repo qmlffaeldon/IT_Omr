@@ -68,7 +68,15 @@ fun analyzeImageFile(
         val qrData = parseQRCodeData(qrRawData)
 
         onProgress?.invoke("Aligning and warping sheet...")
-        val warped = detectAndWarpSheet(finalMat)
+
+        // 1. Convert the original untouched Mat into a Bitmap to pass to the UI
+        val originalBitmap = androidx.core.graphics.createBitmap(finalMat.cols(), finalMat.rows())
+        Utils.matToBitmap(finalMat, originalBitmap)
+
+        // 2. Detect the corners, save them, and then warp
+        val corners = detectSheetFromAnchors(finalMat)
+        val warped = if (corners != null) warpSheetFromPoints(finalMat, corners.toTypedArray()) else null
+
         finalMat.release()
 
         if (warped == null) {
@@ -128,7 +136,7 @@ fun analyzeImageFile(
         rotated.release()
 
         onProgress?.invoke("Finalizing results...")
-        onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers, debugBitmap, correctAnswersMap))
+        onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers, debugBitmap, correctAnswersMap, originalBitmap, corners))
     }
 }
 
@@ -208,12 +216,6 @@ fun detectSheetFromAnchors(src: Mat): List<Point>? {
     }
 
     return listOf(topLeft, topRight, bottomRight, bottomLeft)
-}
-
-fun detectAndWarpSheet(src: Mat): Mat? {
-    // Uses anchors instead of the old detectSheetContour
-    val points = detectSheetFromAnchors(src) ?: return null
-    return warpSheetFromPoints(src, points.toTypedArray()) // Your existing fixed warp function
 }
 
 fun thresholdForOMR(context: Context, src: Mat, cValue: Double, blockSize: Int): Mat {
@@ -697,4 +699,32 @@ fun drawDebugOverlays(
     mat.release()
 
     return resultBitmap
+}
+
+fun reprocessWithNewCorners(
+    context: Context,
+    originalBitmap: android.graphics.Bitmap,
+    newCorners: List<Point>,
+    qrData: QRCodeData?,
+    correctAnswersMap: Map<Int, String>
+): OMRResult? {
+
+    // 1. Convert the raw photo back to a Mat
+    val src = Mat()
+    Utils.bitmapToMat(originalBitmap, src)
+
+    // 2. Warp it using the NEW corners the user dragged
+    val warped = warpSheetFromPoints(src, newCorners.toTypedArray())
+    src.release()
+
+    if (warped == null) return null
+
+    // 3. Re-run the Ensemble AI
+    val detectedAnswers = mutableListOf<DetectedAnswer>()
+    val cleanBitmap = processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, correctAnswersMap, null)
+
+    warped.release()
+
+    // 4. Return fresh data!
+    return OMRResult(qrData?.rawData, qrData, detectedAnswers, cleanBitmap, correctAnswersMap, originalBitmap, newCorners)
 }

@@ -6,6 +6,7 @@ import android.graphics.PointF
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import org.opencv.android.Utils
 
 data class ScanFeedback(
     val corners: List<PointF>?,
@@ -57,6 +58,11 @@ class CameraAnalyzer(
             val qrRawData = detectQRCodeWithDetailedDebug(context, src, "00_qr_detection")
             val qrData = parseQRCodeData(qrRawData)
 
+            // 1. Convert the original frame into a Bitmap
+            val originalBitmap = androidx.core.graphics.createBitmap(src.cols(), src.rows())
+            Utils.matToBitmap(src, originalBitmap)
+
+            // 2. Warp the image using the sheetPoints we already detected above
             val warped = if (sheetPoints != null) {
                 warpSheetFromPoints(src, sheetPoints)
             } else {
@@ -83,7 +89,7 @@ class CameraAnalyzer(
             val debugBitmap = processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, correctAnswersMap)
 
             // 3. Pass the bitmap into the OMRResult callback
-            onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers, debugBitmap, correctAnswersMap))
+            onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers, debugBitmap, correctAnswersMap, originalBitmap, sheetPoints?.toList()))
             warped.release()
 
         } catch (e: Exception) {

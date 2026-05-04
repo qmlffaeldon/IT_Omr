@@ -59,6 +59,7 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import java.util.Locale
 import androidx.core.graphics.toColorInt
+import kotlinx.coroutines.invoke
 
 class CameraScanActivity : AppCompatActivity() {
 
@@ -248,8 +249,6 @@ class CameraScanActivity : AppCompatActivity() {
         ActivityResultContracts.GetContent()
     ) { savedUri: Uri? ->
         if (savedUri != null) {
-            Log.d("OMR", "Image selected from gallery: $savedUri")
-
             if (!OpenCVLoader.initDebug()) {
                 Log.e("OMR", "OpenCV initialization failed!")
                 return@registerForActivityResult
@@ -267,7 +266,14 @@ class CameraScanActivity : AppCompatActivity() {
                         onProgress = { msg -> updateLoadingText(msg) },
                         onDetected = { result ->
                             hideLoading()
-                            onAnswersDetected(result.answers, result.qrData, result.debugBitmap, result.correctAnswersMap)
+                            onAnswersDetected(
+                                result.answers,
+                                result.qrData,
+                                result.debugBitmap,
+                                result.correctAnswersMap,
+                                result.originalBitmap,
+                                result.corners
+                            )
                         },
                         onValidationError = { validation ->
                             runOnUiThread {
@@ -336,6 +342,8 @@ class CameraScanActivity : AppCompatActivity() {
                     hideLoading()
                 }
             }.start()
+            Log.d("OMR", "Image selected from gallery: $savedUri")
+
 
         }
     }
@@ -350,7 +358,9 @@ class CameraScanActivity : AppCompatActivity() {
         detectedAnswers: List<DetectedAnswer>,
         qrData: QRCodeData?,
         cleanBitmap: android.graphics.Bitmap?,
-        correctAnswersMap: Map<Int, String>
+        correctAnswersMap: Map<Int, String>,
+        originalBitmap: android.graphics.Bitmap?,
+        corners: List<org.opencv.core.Point>?
     ) {
         lifecycleScope.launch {
 
@@ -447,52 +457,152 @@ class CameraScanActivity : AppCompatActivity() {
                     setPadding(48, 24, 48, 24)
                 }
 
+                // 1. CREATE TV MESSAGE ONCE
+                val tvMessage = android.widget.TextView(this@CameraScanActivity).apply {
+                    text = resultText
+                    textSize = 14f
+                    setTextColor(android.graphics.Color.BLACK)
+                }
+
                 if (cleanBitmap != null) {
-                    // --- NEW: State tracking for the Dialog ---
                     var stateCorrect = true
                     var stateIncorrect = true
-                    var stateSupposed = false // Hidden by default
+                    var stateSupposed = false
                     var stateDouble = true
+
+                    var currentCleanBitmap = cleanBitmap
+                    var currentAnswers = detectedAnswers
+                    var currentCorners = corners
 
                     val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
                         adjustViewBounds = true
                         setPadding(0, 0, 0, 32)
                     }
 
-                    // Helper function to redraw the tiny dialog image
                     fun refreshDialogImage() {
                         val bmp = com.example.it_scann.modules.drawDebugOverlays(
-                            cleanBitmap, qrData, detectedAnswers, correctAnswersMap,
+                            currentCleanBitmap!!, qrData, currentAnswers, correctAnswersMap,
                             stateCorrect, stateIncorrect, stateSupposed, stateDouble
                         )
                         imageView.setImageBitmap(bmp)
                     }
-
-                    // Draw default state
                     refreshDialogImage()
 
                     imageView.setOnClickListener {
-                        // Pass current state, and provide a callback to update it live!
                         showFullscreenImage(
-                            cleanBitmap, qrData, detectedAnswers, correctAnswersMap,
-                            stateCorrect, stateIncorrect, stateSupposed, stateDouble
-                        ) { newBmp, sc, si, ss, sd ->
-                            stateCorrect = sc
-                            stateIncorrect = si
-                            stateSupposed = ss
-                            stateDouble = sd
-                            imageView.setImageBitmap(newBmp) // Syncs dialog with fullscreen
-                        }
+                            currentCleanBitmap!!, qrData, currentAnswers, correctAnswersMap,
+                            stateCorrect, stateIncorrect, stateSupposed, stateDouble,
+                            originalBitmap, currentCorners,
+                            onStateChanged = { newBmp, sc, si, ss, sd ->
+                                stateCorrect = sc; stateIncorrect = si; stateSupposed = ss; stateDouble = sd
+                                imageView.setImageBitmap(newBmp)
+                            },
+                            onWarpSaved = { newCorners ->
+                                android.widget.Toast.makeText(this@CameraScanActivity, "Re-scanning...", android.widget.Toast.LENGTH_SHORT).show()
+
+                                // Use lifecycleScope to safely run background DB and OMR tasks
+                                lifecycleScope.launch {
+
+                                    // 1. Run the heavy Image Processing on a background thread
+                                    val updatedResult = kotlinx.coroutines.Dispatchers.Default.invoke {
+                                        com.example.it_scann.modules.reprocessWithNewCorners(
+                                            this@CameraScanActivity, originalBitmap!!, newCorners, qrData, correctAnswersMap
+                                        )
+                                    }
+
+                                    if (updatedResult?.debugBitmap != null) {
+                                        currentCleanBitmap = updatedResult.debugBitmap
+                                        currentAnswers = updatedResult.answers
+                                        currentCorners = newCorners
+
+                                        // Update the tiny visual popup
+                                        refreshDialogImage()
+
+                                        // 2. RECALCULATE PROPER SCORES USING YOUR ACTUAL GRADING LOGIC
+                                        val newScores = compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber)
+                                        val newTotalScore = newScores.values.sum()
+
+                                        // 3. SAVE THE NEW SCORES TO THE DATABASE!
+                                        try {
+                                            val db = AppDatabase.getDatabase(this@CameraScanActivity)
+                                            val examResult = ExamResultsEntity(
+                                                examCode = examCode,
+                                                setNumber = setNumber,
+                                                seatNumber = seatNumber,
+                                                totalScore = newTotalScore
+                                            )
+                                            // This will overwrite/upsert the student's score with the manually fixed one
+                                            val examResultId = db.answerKeyDao().insertExamResult(examResult)
+
+                                            val elementScores = newScores.map { (testNumber, score) ->
+                                                ElementScoreEntity(
+                                                    examResultId = examResultId,
+                                                    elementNumber = testNumber,
+                                                    score = score,
+                                                    maxScore = 25
+                                                )
+                                            }
+                                            db.answerKeyDao().upsertElementScores(elementScores)
+                                        } catch (e: Exception) {
+                                            Log.e("OMR", "Failed to update DB after warp fix", e)
+                                        }
+
+                                        // 4. REBUILD THE DETAILED TEXT UI
+                                        val columns = ExamConfigurations.getColumnsForTestType(examCode)
+                                        val testNumbers = ExamConfigurations.getTestNumbersForTestType(examCode)
+
+                                        val newResultText = buildString {
+                                            append("FINAL SCORES (MANUAL FIX)\n")
+                                            append("Exam: $examCode\n")
+                                            append("Seat: $seatNumber  |  Set: $setNumber\n")
+                                            append("----------------\n")
+
+                                            var hasFailingElement = false
+
+                                            newScores.toSortedMap().forEach { (testNumber, score) ->
+                                                val elementName = columns.getOrNull(
+                                                    testNumbers.indexOf(testNumber)
+                                                )?.name ?: "Elem $testNumber"
+
+                                                val percent = score * 4
+                                                if (score < 13) hasFailingElement = true
+
+                                                append("$elementName: $score / 25 ($percent%)\n")
+                                            }
+                                            append("----------------\n")
+                                            append("Total: $newTotalScore / ${newScores.size * 25}\n")
+
+                                            val averagePercent = if (newScores.isNotEmpty()) {
+                                                (newTotalScore.toDouble() * 4) / newScores.size
+                                            } else 0.0
+
+                                            val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
+                                            append("Average: $formattedAverage%\n")
+
+                                            val isFailed = averagePercent < 72.0 || hasFailingElement
+                                            val remarks = if (isFailed) {
+                                                if (examCode == "TYPEC-020304" || examCode == "TYPEC-0304") {
+                                                    "Downgraded to Element D"
+                                                } else "Failed"
+                                            } else "Passed"
+
+                                            append("Remarks: $remarks")
+                                        }
+
+                                        // Update the text box on the screen
+                                        tvMessage.text = newResultText
+                                        android.widget.Toast.makeText(this@CameraScanActivity, "Warp Fixed & Saved to DB!", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        )
                     }
+
+                    // 2. ADD IMAGE TO LAYOUT TOP
                     layout.addView(imageView)
                 }
 
-                // 2. ADD TEXT SECOND (Bottom)
-                val tvMessage = android.widget.TextView(this@CameraScanActivity).apply {
-                    text = resultText
-                    textSize = 14f
-                    setTextColor(android.graphics.Color.BLACK)
-                }
+                // 3. ADD TEXT TO LAYOUT BOTTOM
                 layout.addView(tvMessage)
 
                 scrollView.addView(layout)
@@ -528,7 +638,10 @@ class CameraScanActivity : AppCompatActivity() {
         initialIncorrect: Boolean,
         initialSupposed: Boolean,
         initialDouble: Boolean,
-        onStateChanged: (android.graphics.Bitmap, Boolean, Boolean, Boolean, Boolean) -> Unit
+        originalBitmap: android.graphics.Bitmap?,
+        initialCorners: List<org.opencv.core.Point>?,
+        onStateChanged: (android.graphics.Bitmap, Boolean, Boolean, Boolean, Boolean) -> Unit,
+        onWarpSaved: (List<org.opencv.core.Point>) -> Unit
     ) {
         val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
         val rootLayout = android.widget.RelativeLayout(this).apply {
@@ -544,251 +657,297 @@ class CameraScanActivity : AppCompatActivity() {
         }
         rootLayout.addView(imageView)
 
-        // --- State Variables ---
+        // 1. Basic State Variables
         var showCorrect = initialCorrect
         var showIncorrect = initialIncorrect
         var showSupposed = initialSupposed
         var showDouble = initialDouble
+        var isWarpMode = false
+        val cornerPoints = initialCorners?.map { android.graphics.PointF(it.x.toFloat(), it.y.toFloat()) }?.toMutableList() ?: mutableListOf()
 
-        fun updateImage() {
-            val newBmp = com.example.it_scann.modules.drawDebugOverlays(
-                cleanBitmap, qrData, detectedAnswers, correctAnswersMap,
-                showCorrect, showIncorrect, showSupposed, showDouble
-            )
-            imageView.setImageBitmap(newBmp)
-            onStateChanged(newBmp, showCorrect, showIncorrect, showSupposed, showDouble)
-        }
-        updateImage()
-
-        // Matrix variables for perfect pixel manipulation
+        // 2. Matrix Setup
         var scaleFactor = 1f
         val MAX_SCALE = 5f
         val baseMatrix = android.graphics.Matrix()
         val currentMatrix = android.graphics.Matrix()
 
-        // Wait for the layout to finish rendering to grab the perfectly centered base matrix
-        imageView.post {
-            baseMatrix.set(imageView.imageMatrix)
-            currentMatrix.set(baseMatrix)
-            // Now that we have the baseline, switch to MATRIX mode for manual touch control
-            imageView.scaleType = android.widget.ImageView.ScaleType.MATRIX
-            imageView.imageMatrix = currentMatrix
+        // 3. BUILD THE WARP OVERLAY FIRST
+        val warpOverlay = object : android.view.View(this) {
+            val paintLine = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; strokeWidth = 8f; style = android.graphics.Paint.Style.STROKE }
+            val paintCircle = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; strokeWidth = 6f; style = android.graphics.Paint.Style.STROKE }
+            val paintFill = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#44FFFF00"); style = android.graphics.Paint.Style.FILL }
+            var activePointIndex = -1
+            val touchRadius = 120f
+
+            override fun onDraw(canvas: android.graphics.Canvas) {
+                super.onDraw(canvas)
+                if (!isWarpMode || cornerPoints.size != 4) return
+                val mapped = FloatArray(8)
+                cornerPoints.forEachIndexed { i, p -> mapped[i * 2] = p.x; mapped[i * 2 + 1] = p.y }
+                currentMatrix.mapPoints(mapped)
+
+                val path = android.graphics.Path()
+                path.moveTo(mapped[0], mapped[1]); path.lineTo(mapped[2], mapped[3])
+                path.lineTo(mapped[4], mapped[5]); path.lineTo(mapped[6], mapped[7]); path.close()
+
+                canvas.drawPath(path, paintFill)
+                canvas.drawPath(path, paintLine)
+
+                for (i in 0 until 4) {
+                    canvas.drawCircle(mapped[i * 2], mapped[i * 2 + 1], 40f, paintCircle)
+                    canvas.drawCircle(mapped[i * 2], mapped[i * 2 + 1], 10f, paintLine.apply { style = android.graphics.Paint.Style.FILL })
+                    paintLine.style = android.graphics.Paint.Style.STROKE
+                }
+            }
+        }
+        warpOverlay.layoutParams = android.widget.RelativeLayout.LayoutParams(
+            android.widget.RelativeLayout.LayoutParams.MATCH_PARENT, android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
+        )
+        warpOverlay.visibility = android.view.View.GONE
+        rootLayout.addView(warpOverlay)
+
+        // 4. NOW DEFINE UPDATE IMAGE
+        fun updateImage() {
+            val bmpToDraw = if (isWarpMode && originalBitmap != null) {
+                originalBitmap
+            } else {
+                com.example.it_scann.modules.drawDebugOverlays(
+                    cleanBitmap, qrData, detectedAnswers, correctAnswersMap,
+                    showCorrect, showIncorrect, showSupposed, showDouble
+                )
+            }
+            imageView.setImageBitmap(bmpToDraw)
+
+            imageView.post {
+                val viewRect = android.graphics.RectF(0f, 0f, imageView.width.toFloat(), imageView.height.toFloat())
+                val imgRect = android.graphics.RectF(0f, 0f, bmpToDraw.width.toFloat(), bmpToDraw.height.toFloat())
+                baseMatrix.setRectToRect(imgRect, viewRect, android.graphics.Matrix.ScaleToFit.CENTER)
+                scaleFactor = 1f
+                currentMatrix.set(baseMatrix)
+                imageView.scaleType = android.widget.ImageView.ScaleType.MATRIX
+                imageView.imageMatrix = currentMatrix
+
+                warpOverlay.invalidate() // Now this works perfectly!
+            }
         }
 
-        // --- Helper Function: Buttery Smooth Matrix Animation ---
+        // 5. CALL IT FOR THE FIRST TIME
+        updateImage()
+
         fun animateMatrix(from: android.graphics.Matrix, to: android.graphics.Matrix) {
             val fromValues = FloatArray(9)
             val toValues = FloatArray(9)
             from.getValues(fromValues)
             to.getValues(toValues)
-
             val tempValues = FloatArray(9)
             val tempMatrix = android.graphics.Matrix()
 
             val animator = android.animation.ValueAnimator.ofFloat(0f, 1f)
-            animator.duration = 250 // 250ms animation speed
+            animator.duration = 250
             animator.addUpdateListener { anim ->
                 val fraction = anim.animatedFraction
-                for (i in 0..8) {
-                    tempValues[i] = fromValues[i] + (toValues[i] - fromValues[i]) * fraction
-                }
+                for (i in 0..8) tempValues[i] = fromValues[i] + (toValues[i] - fromValues[i]) * fraction
                 tempMatrix.setValues(tempValues)
-                imageView.imageMatrix = tempMatrix
+
+                // --- FIX: Sync the main matrix during animation so the overlay perfectly tracks it ---
+                currentMatrix.set(tempMatrix)
+
+                imageView.imageMatrix = currentMatrix
+                warpOverlay.invalidate()
             }
             animator.start()
         }
 
-        // --- 1. Panning and Double Tap Logic ---
+        // --- Gesture Handling ---
         val gestureDetector = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
             override fun onScroll(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, distanceX: Float, distanceY: Float): Boolean {
                 if (scaleFactor > 1f) {
-                    // Pan the image by moving the matrix.
-                    // Negative distance ensures the image directly follows your finger 1:1
                     currentMatrix.postTranslate(-distanceX, -distanceY)
                     imageView.imageMatrix = currentMatrix
+                    warpOverlay.invalidate()
                 }
                 return true
             }
-
             override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
                 val startMatrix = android.graphics.Matrix(currentMatrix)
                 val targetMatrix = android.graphics.Matrix()
-
                 if (scaleFactor > 1f) {
-                    // Zoom OUT entirely
-                    scaleFactor = 1f
-                    targetMatrix.set(baseMatrix)
+                    scaleFactor = 1f; targetMatrix.set(baseMatrix)
                 } else {
-                    // Zoom IN to max, using the exact X/Y of the tap as the focal point
-                    scaleFactor = MAX_SCALE
-                    targetMatrix.set(baseMatrix)
-                    targetMatrix.postScale(MAX_SCALE, MAX_SCALE, e.x, e.y)
+                    scaleFactor = MAX_SCALE; targetMatrix.set(baseMatrix); targetMatrix.postScale(MAX_SCALE, MAX_SCALE, e.x, e.y)
                 }
-
                 currentMatrix.set(targetMatrix)
                 animateMatrix(startMatrix, targetMatrix)
                 return true
             }
         })
 
-        // --- 2. Pinch to Zoom Logic ---
         val scaleDetector = android.view.ScaleGestureDetector(this, object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
                 val prevScale = scaleFactor
-                scaleFactor *= detector.scaleFactor
-                scaleFactor = Math.max(1f, Math.min(scaleFactor, MAX_SCALE))
-
-                // Calculate the difference in scale for this exact frame
+                scaleFactor = Math.max(1f, Math.min(scaleFactor * detector.scaleFactor, MAX_SCALE))
                 val scaleDiff = scaleFactor / prevScale
-
-                // Scale around the precise center point between your two fingers
                 currentMatrix.postScale(scaleDiff, scaleDiff, detector.focusX, detector.focusY)
                 imageView.imageMatrix = currentMatrix
-
+                warpOverlay.invalidate()
                 return true
             }
-
             override fun onScaleEnd(detector: android.view.ScaleGestureDetector) {
                 if (scaleFactor <= 1f) {
-                    // Smoothly snap back to center if user pinches out too far
-                    scaleFactor = 1f
-                    val startMatrix = android.graphics.Matrix(currentMatrix)
-                    currentMatrix.set(baseMatrix)
-                    animateMatrix(startMatrix, baseMatrix)
+                    scaleFactor = 1f; val startMatrix = android.graphics.Matrix(currentMatrix); currentMatrix.set(baseMatrix); animateMatrix(startMatrix, baseMatrix)
                 }
             }
         })
 
-        // Attach listeners to the ImageView
-        imageView.setOnTouchListener { view, event ->
+        // Route touches to the overlay to check for corner dragging FIRST
+        warpOverlay.setOnTouchListener { view, event ->
+            if (isWarpMode) {
+                val mapped = FloatArray(8)
+                cornerPoints.forEachIndexed { i, p -> mapped[i * 2] = p.x; mapped[i * 2 + 1] = p.y }
+                currentMatrix.mapPoints(mapped)
+
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        for (i in 0 until 4) {
+                            val dx = event.x - mapped[i * 2]
+                            val dy = event.y - mapped[i * 2 + 1]
+                            if (Math.sqrt((dx * dx + dy * dy).toDouble()) < warpOverlay.touchRadius) {
+                                warpOverlay.activePointIndex = i
+                                return@setOnTouchListener true
+                            }
+                        }
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        if (warpOverlay.activePointIndex != -1) {
+                            val inverse = android.graphics.Matrix()
+                            currentMatrix.invert(inverse)
+                            val unmapped = FloatArray(2).apply { this[0] = event.x; this[1] = event.y }
+                            inverse.mapPoints(unmapped)
+                            cornerPoints[warpOverlay.activePointIndex].x = unmapped[0]
+                            cornerPoints[warpOverlay.activePointIndex].y = unmapped[1]
+                            warpOverlay.invalidate()
+                            return@setOnTouchListener true
+                        }
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        if (warpOverlay.activePointIndex != -1) {
+                            warpOverlay.activePointIndex = -1
+                            view.performClick()
+                            return@setOnTouchListener true
+                        }
+                    }
+                }
+            }
+            // If not dragging a corner, pass to zoom/pan
             scaleDetector.onTouchEvent(event)
             gestureDetector.onTouchEvent(event)
-
-            if (event.action == android.view.MotionEvent.ACTION_UP) {
-                view.performClick()
-            }
             true
         }
 
-        // --- Top Bar (Holds Back & Exit Toggle) ---
+        // ==========================================
+        // DYNAMIC UI COMPONENTS
+        // ==========================================
         val topBarLayout = android.widget.RelativeLayout(this).apply {
             layoutParams = android.widget.RelativeLayout.LayoutParams(
                 android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
                 android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
-                setMargins(32, 48, 32, 0)
-            }
+            ).apply { addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP); setMargins(32, 48, 32, 0) }
         }
 
         val closeButton = com.google.android.material.button.MaterialButton(this).apply {
-            text = "← Back"
-            cornerRadius = 16
+            text = "← Back"; cornerRadius = 16
             setOnClickListener { dialog.dismiss() }
         }
         topBarLayout.addView(closeButton)
 
         val btnExitToggle = com.google.android.material.button.MaterialButton(this).apply {
-            text = "Exit Toggle"
-            cornerRadius = 16
-            visibility = android.view.View.GONE // Hidden initially
+            text = "Exit Toggle"; cornerRadius = 16; visibility = android.view.View.GONE
             layoutParams = android.widget.RelativeLayout.LayoutParams(
-                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT, android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
             ).apply { addRule(android.widget.RelativeLayout.CENTER_HORIZONTAL) }
         }
         topBarLayout.addView(btnExitToggle)
+
+        // --- NEW: Fix Warp Button ---
+        val btnFixWarp = com.google.android.material.button.MaterialButton(this).apply {
+            text = "Fix Warp"; cornerRadius = 16
+            layoutParams = android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT, android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+            ).apply { addRule(android.widget.RelativeLayout.ALIGN_PARENT_END) }
+        }
+        topBarLayout.addView(btnFixWarp)
         rootLayout.addView(topBarLayout)
 
-        // --- Bottom Area (Holds Enter Toggle & 4-Grid) ---
         val bottomLayout = android.widget.RelativeLayout(this).apply {
             layoutParams = android.widget.RelativeLayout.LayoutParams(
-                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
-                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                addRule(android.widget.RelativeLayout.ALIGN_PARENT_BOTTOM)
-                setMargins(32, 0, 32, 64)
-            }
+                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT, android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+            ).apply { addRule(android.widget.RelativeLayout.ALIGN_PARENT_BOTTOM); setMargins(32, 0, 32, 64) }
         }
 
         val btnEnterToggle = com.google.android.material.button.MaterialButton(this).apply {
-            text = "Toggle Legends"
-            cornerRadius = 16
+            text = "Toggle Legends"; cornerRadius = 16
             layoutParams = android.widget.RelativeLayout.LayoutParams(
-                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT, android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
             ).apply { addRule(android.widget.RelativeLayout.CENTER_HORIZONTAL) }
         }
         bottomLayout.addView(btnEnterToggle)
 
-        // --- The 4-Button Grid ---
         val togglesGrid = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            visibility = android.view.View.GONE // Hidden initially
+            orientation = android.widget.LinearLayout.VERTICAL; visibility = android.view.View.GONE
             layoutParams = android.widget.RelativeLayout.LayoutParams(
-                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
-                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT, android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
             )
         }
 
         fun createToggleButton(title: String, initialState: Boolean, onClick: (Boolean) -> Unit): com.google.android.material.button.MaterialButton {
             var state = initialState
-
-            // Removed the outlined style to make it a solid button
             return com.google.android.material.button.MaterialButton(this).apply {
-                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    setMargins(8, 8, 8, 8)
-                }
-                textSize = 12f
-                cornerRadius = 16 // Match the other buttons
-                setTextColor(android.graphics.Color.WHITE) // Force white text for contrast
-
-                // Helper to update text and background color
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(8, 8, 8, 8) }
+                textSize = 12f; cornerRadius = 16; setTextColor(android.graphics.Color.WHITE)
                 fun updateAppearance() {
                     text = "$title: ${if (state) "Shown" else "Hidden"}"
-
-                    // Material Green for Shown, Material Red for Hidden
-                    val colorHex = if (state) "#4CAF50" else "#F44336"
-                    backgroundTintList = android.content.res.ColorStateList.valueOf(colorHex.toColorInt())
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor(if (state) "#4CAF50" else "#F44336"))
                 }
-
-                // Set the initial color and text
                 updateAppearance()
-
-                setOnClickListener {
-                    state = !state
-                    updateAppearance() // Update color and text on click
-                    onClick(state)
-                }
+                setOnClickListener { state = !state; updateAppearance(); onClick(state) }
             }
         }
 
         val row1 = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL }
-        row1.addView(createToggleButton("Correct Answers", showCorrect) { showCorrect = it; updateImage() })
-        row1.addView(createToggleButton("Incorrect Answers", showIncorrect) { showIncorrect = it; updateImage() })
+        row1.addView(createToggleButton("Correct", showCorrect) { showCorrect = it; updateImage() })
+        row1.addView(createToggleButton("Incorrect", showIncorrect) { showIncorrect = it; updateImage() })
 
         val row2 = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL }
-        row2.addView(createToggleButton("Supposed Answers", showSupposed) { showSupposed = it; updateImage() })
-        row2.addView(createToggleButton("Double Answers", showDouble) { showDouble = it; updateImage() })
+        row2.addView(createToggleButton("Supposed", showSupposed) { showSupposed = it; updateImage() })
+        row2.addView(createToggleButton("Double", showDouble) { showDouble = it; updateImage() })
 
-        togglesGrid.addView(row1)
-        togglesGrid.addView(row2)
-        bottomLayout.addView(togglesGrid)
-        rootLayout.addView(bottomLayout)
+        togglesGrid.addView(row1); togglesGrid.addView(row2); bottomLayout.addView(togglesGrid); rootLayout.addView(bottomLayout)
 
-        // --- Toggle Navigation Logic ---
+        // --- UI Navigation Logic ---
         btnEnterToggle.setOnClickListener {
-            btnEnterToggle.visibility = android.view.View.GONE
-            closeButton.visibility = android.view.View.GONE
-            btnExitToggle.visibility = android.view.View.VISIBLE
-            togglesGrid.visibility = android.view.View.VISIBLE
+            btnEnterToggle.visibility = android.view.View.GONE; closeButton.visibility = android.view.View.GONE; btnFixWarp.visibility = android.view.View.GONE
+            btnExitToggle.visibility = android.view.View.VISIBLE; togglesGrid.visibility = android.view.View.VISIBLE
+        }
+        btnExitToggle.setOnClickListener {
+            btnExitToggle.visibility = android.view.View.GONE; togglesGrid.visibility = android.view.View.GONE
+            btnEnterToggle.visibility = android.view.View.VISIBLE; closeButton.visibility = android.view.View.VISIBLE; btnFixWarp.visibility = android.view.View.VISIBLE
         }
 
-        btnExitToggle.setOnClickListener {
-            btnExitToggle.visibility = android.view.View.GONE
-            togglesGrid.visibility = android.view.View.GONE
-            btnEnterToggle.visibility = android.view.View.VISIBLE
-            closeButton.visibility = android.view.View.VISIBLE
+        btnFixWarp.setOnClickListener {
+            if (!isWarpMode) {
+                // Enter Warp Mode
+                isWarpMode = true
+                btnFixWarp.text = "Save & Exit"
+                btnEnterToggle.visibility = android.view.View.GONE
+                closeButton.visibility = android.view.View.GONE
+                warpOverlay.visibility = android.view.View.VISIBLE
+                updateImage() // Switches to original bitmap
+            } else {
+                // Save & Exit
+                val newCorners = cornerPoints.map { org.opencv.core.Point(it.x.toDouble(), it.y.toDouble()) }
+                onWarpSaved(newCorners)
+                dialog.dismiss()
+            }
         }
 
         dialog.setContentView(rootLayout)
@@ -1097,7 +1256,14 @@ class CameraScanActivity : AppCompatActivity() {
                                 onDetected = { result ->
                                     runOnUiThread {
                                         hideLoading()
-                                        onAnswersDetected(result.answers, result.qrData, result.debugBitmap, result.correctAnswersMap)
+                                        onAnswersDetected(
+                                            result.answers,
+                                            result.qrData,
+                                            result.debugBitmap,
+                                            result.correctAnswersMap,
+                                            result.originalBitmap,    // <-- Pass it here
+                                            result.corners            // <-- Pass it here
+                                        )
                                     }
                                 },
                                 onValidationError = { validation ->

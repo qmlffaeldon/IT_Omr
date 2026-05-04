@@ -11,7 +11,9 @@ data class OMRResult(
     val qrData: QRCodeData?,
     val answers: List<DetectedAnswer>,
     val debugBitmap: android.graphics.Bitmap? = null,
-    val correctAnswersMap: Map<Int, String> = emptyMap()
+    val correctAnswersMap: Map<Int, String> = emptyMap(),
+    val originalBitmap: android.graphics.Bitmap? = null,
+    val corners: List<org.opencv.core.Point>? = null
 )
 data class QRCodeData(
     val testType: String,
