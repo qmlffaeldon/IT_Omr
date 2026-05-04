@@ -443,6 +443,22 @@ class CameraScanActivity : AppCompatActivity() {
                     setPadding(48, 24, 48, 24)
                 }
 
+                // 1. ADD IMAGE FIRST (Top)
+                if (debugBitmap != null) {
+                    val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
+                        setImageBitmap(debugBitmap)
+                        adjustViewBounds = true
+                        setPadding(0, 0, 0, 32) // Padding at bottom to separate from text
+
+                        // Make it clickable to open Fullscreen mode
+                        setOnClickListener {
+                            showFullscreenImage(debugBitmap)
+                        }
+                    }
+                    layout.addView(imageView)
+                }
+
+                // 2. ADD TEXT SECOND (Bottom)
                 val tvMessage = android.widget.TextView(this@CameraScanActivity).apply {
                     text = resultText
                     textSize = 14f
@@ -450,20 +466,11 @@ class CameraScanActivity : AppCompatActivity() {
                 }
                 layout.addView(tvMessage)
 
-                // Inject the generated image into the dialog
-                if (debugBitmap != null) {
-                    val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
-                        setImageBitmap(debugBitmap)
-                        adjustViewBounds = true
-                        setPadding(0, 32, 0, 0)
-                    }
-                    layout.addView(imageView)
-                }
                 scrollView.addView(layout)
 
                 AlertDialog.Builder(this@CameraScanActivity)
                     .setTitle("Results Saved ✓")
-                    .setView(scrollView) // Use the custom view instead of setMessage()
+                    .setView(scrollView)
                     .setPositiveButton("OK", null)
                     .show()
 
@@ -480,6 +487,160 @@ class CameraScanActivity : AppCompatActivity() {
                     .show()
             }
         }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showFullscreenImage(bitmap: android.graphics.Bitmap) {
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+
+        val layout = android.widget.RelativeLayout(this).apply {
+            setBackgroundColor(android.graphics.Color.BLACK)
+        }
+
+        val imageView = android.widget.ImageView(this).apply {
+            setImageBitmap(bitmap)
+            layoutParams = android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
+            )
+            // We start with FIT_CENTER to let Android calculate the perfectly centered initial size
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        }
+        layout.addView(imageView)
+
+        // Matrix variables for perfect pixel manipulation
+        var scaleFactor = 1f
+        val MAX_SCALE = 5f
+        val baseMatrix = android.graphics.Matrix()
+        val currentMatrix = android.graphics.Matrix()
+
+        // Wait for the layout to finish rendering to grab the perfectly centered base matrix
+        imageView.post {
+            baseMatrix.set(imageView.imageMatrix)
+            currentMatrix.set(baseMatrix)
+            // Now that we have the baseline, switch to MATRIX mode for manual touch control
+            imageView.scaleType = android.widget.ImageView.ScaleType.MATRIX
+            imageView.imageMatrix = currentMatrix
+        }
+
+        // --- Helper Function: Buttery Smooth Matrix Animation ---
+        fun animateMatrix(from: android.graphics.Matrix, to: android.graphics.Matrix) {
+            val fromValues = FloatArray(9)
+            val toValues = FloatArray(9)
+            from.getValues(fromValues)
+            to.getValues(toValues)
+
+            val tempValues = FloatArray(9)
+            val tempMatrix = android.graphics.Matrix()
+
+            val animator = android.animation.ValueAnimator.ofFloat(0f, 1f)
+            animator.duration = 250 // 250ms animation speed
+            animator.addUpdateListener { anim ->
+                val fraction = anim.animatedFraction
+                for (i in 0..8) {
+                    tempValues[i] = fromValues[i] + (toValues[i] - fromValues[i]) * fraction
+                }
+                tempMatrix.setValues(tempValues)
+                imageView.imageMatrix = tempMatrix
+            }
+            animator.start()
+        }
+
+        // --- 1. Panning and Double Tap Logic ---
+        val gestureDetector = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onScroll(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+                if (scaleFactor > 1f) {
+                    // Pan the image by moving the matrix.
+                    // Negative distance ensures the image directly follows your finger 1:1
+                    currentMatrix.postTranslate(-distanceX, -distanceY)
+                    imageView.imageMatrix = currentMatrix
+                }
+                return true
+            }
+
+            override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                val startMatrix = android.graphics.Matrix(currentMatrix)
+                val targetMatrix = android.graphics.Matrix()
+
+                if (scaleFactor > 1f) {
+                    // Zoom OUT entirely
+                    scaleFactor = 1f
+                    targetMatrix.set(baseMatrix)
+                } else {
+                    // Zoom IN to max, using the exact X/Y of the tap as the focal point
+                    scaleFactor = MAX_SCALE
+                    targetMatrix.set(baseMatrix)
+                    targetMatrix.postScale(MAX_SCALE, MAX_SCALE, e.x, e.y)
+                }
+
+                currentMatrix.set(targetMatrix)
+                animateMatrix(startMatrix, targetMatrix)
+                return true
+            }
+        })
+
+        // --- 2. Pinch to Zoom Logic ---
+        val scaleDetector = android.view.ScaleGestureDetector(this, object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                val prevScale = scaleFactor
+                scaleFactor *= detector.scaleFactor
+                scaleFactor = Math.max(1f, Math.min(scaleFactor, MAX_SCALE))
+
+                // Calculate the difference in scale for this exact frame
+                val scaleDiff = scaleFactor / prevScale
+
+                // Scale around the precise center point between your two fingers
+                currentMatrix.postScale(scaleDiff, scaleDiff, detector.focusX, detector.focusY)
+                imageView.imageMatrix = currentMatrix
+
+                return true
+            }
+
+            override fun onScaleEnd(detector: android.view.ScaleGestureDetector) {
+                if (scaleFactor <= 1f) {
+                    // Smoothly snap back to center if user pinches out too far
+                    scaleFactor = 1f
+                    val startMatrix = android.graphics.Matrix(currentMatrix)
+                    currentMatrix.set(baseMatrix)
+                    animateMatrix(startMatrix, baseMatrix)
+                }
+            }
+        })
+
+        // Attach listeners to the ImageView
+        imageView.setOnTouchListener { view, event ->
+            scaleDetector.onTouchEvent(event)
+            gestureDetector.onTouchEvent(event)
+
+            if (event.action == android.view.MotionEvent.ACTION_UP) {
+                view.performClick()
+            }
+            true
+        }
+
+        // --- 3. The Solid Back Button ---
+        val closeButton = com.google.android.material.button.MaterialButton(this).apply {
+            text = "← Back"
+            cornerRadius = 16 // Gives it the solid pill shape like your normal UI
+
+            val params = android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
+                addRule(android.widget.RelativeLayout.ALIGN_PARENT_START)
+                setMargins(32, 48, 0, 0) // Pads it nicely from the top-left edge
+            }
+            layoutParams = params
+
+            setOnClickListener {
+                dialog.dismiss() // Safely exits the fullscreen image
+            }
+        }
+        layout.addView(closeButton)
+
+        dialog.setContentView(layout)
+        dialog.show()
     }
 
     fun showManualAbsenteeDialog(context: Context, onAbsenteesSaved: (List<Int>) -> Unit) {
