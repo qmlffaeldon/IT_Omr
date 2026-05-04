@@ -267,7 +267,7 @@ class CameraScanActivity : AppCompatActivity() {
                         onProgress = { msg -> updateLoadingText(msg) },
                         onDetected = { result ->
                             hideLoading()
-                            onAnswersDetected(result.answers, result.qrData, result.debugBitmap)
+                            onAnswersDetected(result.answers, result.qrData, result.debugBitmap, result.correctAnswersMap)
                         },
                         onValidationError = { validation ->
                             runOnUiThread {
@@ -346,7 +346,12 @@ class CameraScanActivity : AppCompatActivity() {
     }
 
     // Change signature
-    fun onAnswersDetected(detectedAnswers: List<DetectedAnswer>, qrData: QRCodeData?, debugBitmap: android.graphics.Bitmap?) {
+    fun onAnswersDetected(
+        detectedAnswers: List<DetectedAnswer>,
+        qrData: QRCodeData?,
+        cleanBitmap: android.graphics.Bitmap?,
+        correctAnswersMap: Map<Int, String>
+    ) {
         lifecycleScope.launch {
 
             val setNumber  = qrData?.setNumber ?: 1
@@ -436,23 +441,47 @@ class CameraScanActivity : AppCompatActivity() {
 
                 delay(500)
 
-                // Build a custom ScrollView to hold both text and the image
                 val scrollView = android.widget.ScrollView(this@CameraScanActivity)
                 val layout = android.widget.LinearLayout(this@CameraScanActivity).apply {
                     orientation = android.widget.LinearLayout.VERTICAL
                     setPadding(48, 24, 48, 24)
                 }
 
-                // 1. ADD IMAGE FIRST (Top)
-                if (debugBitmap != null) {
-                    val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
-                        setImageBitmap(debugBitmap)
-                        adjustViewBounds = true
-                        setPadding(0, 0, 0, 32) // Padding at bottom to separate from text
+                if (cleanBitmap != null) {
+                    // --- NEW: State tracking for the Dialog ---
+                    var stateCorrect = true
+                    var stateIncorrect = true
+                    var stateSupposed = false // Hidden by default
+                    var stateDouble = true
 
-                        // Make it clickable to open Fullscreen mode
-                        setOnClickListener {
-                            showFullscreenImage(debugBitmap)
+                    val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
+                        adjustViewBounds = true
+                        setPadding(0, 0, 0, 32)
+                    }
+
+                    // Helper function to redraw the tiny dialog image
+                    fun refreshDialogImage() {
+                        val bmp = com.example.it_scann.modules.drawDebugOverlays(
+                            cleanBitmap, qrData, detectedAnswers, correctAnswersMap,
+                            stateCorrect, stateIncorrect, stateSupposed, stateDouble
+                        )
+                        imageView.setImageBitmap(bmp)
+                    }
+
+                    // Draw default state
+                    refreshDialogImage()
+
+                    imageView.setOnClickListener {
+                        // Pass current state, and provide a callback to update it live!
+                        showFullscreenImage(
+                            cleanBitmap, qrData, detectedAnswers, correctAnswersMap,
+                            stateCorrect, stateIncorrect, stateSupposed, stateDouble
+                        ) { newBmp, sc, si, ss, sd ->
+                            stateCorrect = sc
+                            stateIncorrect = si
+                            stateSupposed = ss
+                            stateDouble = sd
+                            imageView.setImageBitmap(newBmp) // Syncs dialog with fullscreen
                         }
                     }
                     layout.addView(imageView)
@@ -490,23 +519,46 @@ class CameraScanActivity : AppCompatActivity() {
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun showFullscreenImage(bitmap: android.graphics.Bitmap) {
+    private fun showFullscreenImage(
+        cleanBitmap: android.graphics.Bitmap,
+        qrData: QRCodeData?,
+        detectedAnswers: List<DetectedAnswer>,
+        correctAnswersMap: Map<Int, String>,
+        initialCorrect: Boolean,
+        initialIncorrect: Boolean,
+        initialSupposed: Boolean,
+        initialDouble: Boolean,
+        onStateChanged: (android.graphics.Bitmap, Boolean, Boolean, Boolean, Boolean) -> Unit
+    ) {
         val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
-
-        val layout = android.widget.RelativeLayout(this).apply {
+        val rootLayout = android.widget.RelativeLayout(this).apply {
             setBackgroundColor(android.graphics.Color.BLACK)
         }
 
         val imageView = android.widget.ImageView(this).apply {
-            setImageBitmap(bitmap)
             layoutParams = android.widget.RelativeLayout.LayoutParams(
                 android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
                 android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
             )
-            // We start with FIT_CENTER to let Android calculate the perfectly centered initial size
             scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
         }
-        layout.addView(imageView)
+        rootLayout.addView(imageView)
+
+        // --- State Variables ---
+        var showCorrect = initialCorrect
+        var showIncorrect = initialIncorrect
+        var showSupposed = initialSupposed
+        var showDouble = initialDouble
+
+        fun updateImage() {
+            val newBmp = com.example.it_scann.modules.drawDebugOverlays(
+                cleanBitmap, qrData, detectedAnswers, correctAnswersMap,
+                showCorrect, showIncorrect, showSupposed, showDouble
+            )
+            imageView.setImageBitmap(newBmp)
+            onStateChanged(newBmp, showCorrect, showIncorrect, showSupposed, showDouble)
+        }
+        updateImage()
 
         // Matrix variables for perfect pixel manipulation
         var scaleFactor = 1f
@@ -618,28 +670,128 @@ class CameraScanActivity : AppCompatActivity() {
             true
         }
 
-        // --- 3. The Solid Back Button ---
-        val closeButton = com.google.android.material.button.MaterialButton(this).apply {
-            text = "← Back"
-            cornerRadius = 16 // Gives it the solid pill shape like your normal UI
-
-            val params = android.widget.RelativeLayout.LayoutParams(
-                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
+        // --- Top Bar (Holds Back & Exit Toggle) ---
+        val topBarLayout = android.widget.RelativeLayout(this).apply {
+            layoutParams = android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
                 android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
-                addRule(android.widget.RelativeLayout.ALIGN_PARENT_START)
-                setMargins(32, 48, 0, 0) // Pads it nicely from the top-left edge
-            }
-            layoutParams = params
-
-            setOnClickListener {
-                dialog.dismiss() // Safely exits the fullscreen image
+                setMargins(32, 48, 32, 0)
             }
         }
-        layout.addView(closeButton)
 
-        dialog.setContentView(layout)
+        val closeButton = com.google.android.material.button.MaterialButton(this).apply {
+            text = "← Back"
+            cornerRadius = 16
+            setOnClickListener { dialog.dismiss() }
+        }
+        topBarLayout.addView(closeButton)
+
+        val btnExitToggle = com.google.android.material.button.MaterialButton(this).apply {
+            text = "Exit Toggle"
+            cornerRadius = 16
+            visibility = android.view.View.GONE // Hidden initially
+            layoutParams = android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+            ).apply { addRule(android.widget.RelativeLayout.CENTER_HORIZONTAL) }
+        }
+        topBarLayout.addView(btnExitToggle)
+        rootLayout.addView(topBarLayout)
+
+        // --- Bottom Area (Holds Enter Toggle & 4-Grid) ---
+        val bottomLayout = android.widget.RelativeLayout(this).apply {
+            layoutParams = android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                addRule(android.widget.RelativeLayout.ALIGN_PARENT_BOTTOM)
+                setMargins(32, 0, 32, 64)
+            }
+        }
+
+        val btnEnterToggle = com.google.android.material.button.MaterialButton(this).apply {
+            text = "Toggle Legends"
+            cornerRadius = 16
+            layoutParams = android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+            ).apply { addRule(android.widget.RelativeLayout.CENTER_HORIZONTAL) }
+        }
+        bottomLayout.addView(btnEnterToggle)
+
+        // --- The 4-Button Grid ---
+        val togglesGrid = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            visibility = android.view.View.GONE // Hidden initially
+            layoutParams = android.widget.RelativeLayout.LayoutParams(
+                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+                android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        fun createToggleButton(title: String, initialState: Boolean, onClick: (Boolean) -> Unit): com.google.android.material.button.MaterialButton {
+            var state = initialState
+
+            // Removed the outlined style to make it a solid button
+            return com.google.android.material.button.MaterialButton(this).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(8, 8, 8, 8)
+                }
+                textSize = 12f
+                cornerRadius = 16 // Match the other buttons
+                setTextColor(android.graphics.Color.WHITE) // Force white text for contrast
+
+                // Helper to update text and background color
+                fun updateAppearance() {
+                    text = "$title: ${if (state) "Shown" else "Hidden"}"
+
+                    // Material Green for Shown, Material Red for Hidden
+                    val colorHex = if (state) "#4CAF50" else "#F44336"
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(colorHex.toColorInt())
+                }
+
+                // Set the initial color and text
+                updateAppearance()
+
+                setOnClickListener {
+                    state = !state
+                    updateAppearance() // Update color and text on click
+                    onClick(state)
+                }
+            }
+        }
+
+        val row1 = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL }
+        row1.addView(createToggleButton("Correct Answers", showCorrect) { showCorrect = it; updateImage() })
+        row1.addView(createToggleButton("Incorrect Answers", showIncorrect) { showIncorrect = it; updateImage() })
+
+        val row2 = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL }
+        row2.addView(createToggleButton("Supposed Answers", showSupposed) { showSupposed = it; updateImage() })
+        row2.addView(createToggleButton("Double Answers", showDouble) { showDouble = it; updateImage() })
+
+        togglesGrid.addView(row1)
+        togglesGrid.addView(row2)
+        bottomLayout.addView(togglesGrid)
+        rootLayout.addView(bottomLayout)
+
+        // --- Toggle Navigation Logic ---
+        btnEnterToggle.setOnClickListener {
+            btnEnterToggle.visibility = android.view.View.GONE
+            closeButton.visibility = android.view.View.GONE
+            btnExitToggle.visibility = android.view.View.VISIBLE
+            togglesGrid.visibility = android.view.View.VISIBLE
+        }
+
+        btnExitToggle.setOnClickListener {
+            btnExitToggle.visibility = android.view.View.GONE
+            togglesGrid.visibility = android.view.View.GONE
+            btnEnterToggle.visibility = android.view.View.VISIBLE
+            closeButton.visibility = android.view.View.VISIBLE
+        }
+
+        dialog.setContentView(rootLayout)
         dialog.show()
     }
 
@@ -945,7 +1097,7 @@ class CameraScanActivity : AppCompatActivity() {
                                 onDetected = { result ->
                                     runOnUiThread {
                                         hideLoading()
-                                        onAnswersDetected(result.answers, result.qrData, result.debugBitmap)
+                                        onAnswersDetected(result.answers, result.qrData, result.debugBitmap, result.correctAnswersMap)
                                     }
                                 },
                                 onValidationError = { validation ->

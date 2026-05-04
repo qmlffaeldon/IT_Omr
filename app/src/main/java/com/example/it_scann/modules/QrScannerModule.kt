@@ -10,7 +10,8 @@ data class OMRResult(
     val qrCode: String?,
     val qrData: QRCodeData?,
     val answers: List<DetectedAnswer>,
-    val debugBitmap: android.graphics.Bitmap? = null
+    val debugBitmap: android.graphics.Bitmap? = null,
+    val correctAnswersMap: Map<Int, String> = emptyMap()
 )
 data class QRCodeData(
     val testType: String,

@@ -128,7 +128,7 @@ fun analyzeImageFile(
         rotated.release()
 
         onProgress?.invoke("Finalizing results...")
-        onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers, debugBitmap))
+        onDetected(OMRResult(qrData?.rawData, qrData, detectedAnswers, debugBitmap, correctAnswersMap))
     }
 }
 
@@ -573,106 +573,11 @@ fun processAnswerSheetWithEnsemble(
 
     onProgress?.invoke("Generating verification image...")
 
-    // --- NEW: Draw final decisions on a cloned image ---
-    val finalDebugMat = warped.clone()
-    val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
-    val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
-    val choices = 4
+    // Create the "Clean Canvas" Bitmap
+    val cleanBitmap = androidx.core.graphics.createBitmap(warped.cols(), warped.rows())
+    Utils.matToBitmap(warped, cleanBitmap)
 
-    var answerIndex = 0
-    for (col in columns) {
-        val imgH = finalDebugMat.rows()
-        val imgW = finalDebugMat.cols()
-
-        val xStart = (imgW * col.startx).toInt().coerceIn(0, imgW - 1)
-        val xEnd = (xStart + imgW * col.width).toInt().coerceIn(xStart + 1, imgW)
-        val yStart = (imgH * col.starty).toInt().coerceIn(0, imgH - 1)
-        val yEnd = (yStart + imgH * col.height).toInt().coerceIn(yStart + 1, imgH)
-
-        val qHeight = (yEnd - yStart) / questions
-        val cWidth = (xEnd - xStart) / choices
-
-        for (q in 0 until questions) {
-            if (answerIndex >= finalAnswers.size) break
-
-            val answer = finalAnswers[answerIndex]
-            val detectedValue = answer.detected
-            val consensusScore = answer.consensus
-
-            // --- NEW: Parse the correct answer from the answer string ---
-            val answerString = correctAnswersMap[answer.testNumber] ?: ""
-            // Grab the character for this specific question (q is 0-indexed)
-            val correctChar = if (q < answerString.length) answerString[q] else ' '
-
-            // Convert 'A'/'1' to 1, 'B'/'2' to 2, etc.
-            val correctAnswer = when (correctChar.uppercaseChar()) {
-                'A', '1' -> 1
-                'B', '2' -> 2
-                'C', '3' -> 3
-                'D', '4' -> 4
-                else -> -1
-            }
-
-            val isCorrect = (detectedValue == correctAnswer)
-
-            val centerY = yStart + q * qHeight + qHeight / 2
-
-            if (detectedValue in 1..choices) {
-                val cx = xStart + (detectedValue - 1) * cWidth + cWidth / 2
-                val center = Point(cx.toDouble(), centerY.toDouble())
-
-                if (isCorrect) {
-                    // CORRECT: Bright Green (5/5) or Bright Yellow (<= 4/5)
-                    val circleColor = if (consensusScore == 5) Scalar(0.0, 255.0, 0.0, 255.0) else Scalar(255.0, 255.0, 0.0, 255.0)
-                    Imgproc.circle(finalDebugMat, center, 12, circleColor, 3)
-                } else {
-                    // WRONG: Bright Red (5/5) or Bright Orange (<= 4/5)
-                    val xColor = if (consensusScore == 5) Scalar(255.0, 0.0, 127.0, 255.0) else Scalar(255.0, 165.0, 0.0, 255.0)
-                    Imgproc.drawMarker(finalDebugMat, center, xColor, Imgproc.MARKER_TILTED_CROSS, 20, 5)
-
-                    // MISSED CORRECT: Draw Purple Ring around the actual correct answer
-                    if (correctAnswer in 1..choices) {
-                        val correctCx = xStart + (correctAnswer - 1) * cWidth + cWidth / 2
-                        val correctCenter = Point(correctCx.toDouble(), centerY.toDouble())
-                        Imgproc.circle(finalDebugMat, correctCenter, 15, Scalar(0.0, 255.0, 255.0, 255.0), 3)
-                    }
-                }
-
-            } else if (detectedValue <= -2) {
-                // DOUBLE/INVALID: Red Line across the entire row
-                Imgproc.line(finalDebugMat, Point(xStart.toDouble(), centerY.toDouble()), Point(xEnd.toDouble(), centerY.toDouble()), Scalar(255.0, 0.0, 0.0, 255.0), 4)
-
-                // Red Boxes around the specific bubbles that caused the conflict
-                answer.shadedBubbles.forEach { choice ->
-                    if (choice in 1..choices) {
-                        val cx = xStart + (choice - 1) * cWidth + cWidth / 2
-
-                        // Calculate box corners using the column/row dimensions
-                        val p1 = Point(cx - cWidth / 3.0, centerY - qHeight / 3.0)
-                        val p2 = Point(cx + cWidth / 3.0, centerY + qHeight / 3.0)
-                        Imgproc.rectangle(finalDebugMat, p1, p2, Scalar(255.0, 0.0, 0.0, 255.0), 3)
-                    }
-                }
-
-                // MISSED CORRECT (Even if they double-marked): Draw Purple Ring
-                if (correctAnswer in 1..choices) {
-                    val correctCx = xStart + (correctAnswer - 1) * cWidth + cWidth / 2
-                    val correctCenter = Point(correctCx.toDouble(), centerY.toDouble())
-                    Imgproc.circle(finalDebugMat, correctCenter, 15, Scalar(255.0, 0.0, 255.0, 255.0), 3)
-                }
-            }
-            // If -1 (Blank), draw nothing
-
-            answerIndex++
-        }
-    }
-
-    // Convert the Mat to an Android Bitmap
-    val debugBitmap = androidx.core.graphics.createBitmap(finalDebugMat.cols(), finalDebugMat.rows())
-    Utils.matToBitmap(finalDebugMat, debugBitmap)
-    finalDebugMat.release()
-
-    return debugBitmap // Return the temporary image
+    return cleanBitmap
 }
 
 private fun Double.fmt() = "%.3f".format(this)
@@ -691,4 +596,105 @@ fun saveDebugMat(context: Context, mat: Mat, name: String) {
             bitmap.compress(Bitmap.CompressFormat.JPEG, 95, it)
         }
     }
+}
+
+fun drawDebugOverlays(
+    cleanBitmap: android.graphics.Bitmap,
+    qrData: QRCodeData?,
+    finalAnswers: List<DetectedAnswer>,
+    correctAnswersMap: Map<Int, String>,
+    showCorrect: Boolean = true,
+    showIncorrect: Boolean = true,
+    showSupposed: Boolean = false,
+    showDouble: Boolean = true
+): android.graphics.Bitmap {
+
+    val mat = Mat()
+    Utils.bitmapToMat(cleanBitmap, mat)
+
+    val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
+    val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
+    val choices = 4
+
+    var answerIndex = 0
+    for (col in columns) {
+        val imgH = mat.rows()
+        val imgW = mat.cols()
+
+        val xStart = (imgW * col.startx).toInt().coerceIn(0, imgW - 1)
+        val xEnd = (xStart + imgW * col.width).toInt().coerceIn(xStart + 1, imgW)
+        val yStart = (imgH * col.starty).toInt().coerceIn(0, imgH - 1)
+        val yEnd = (yStart + imgH * col.height).toInt().coerceIn(yStart + 1, imgH)
+
+        val qHeight = (yEnd - yStart) / questions
+        val cWidth = (xEnd - xStart) / choices
+
+        for (q in 0 until questions) {
+            if (answerIndex >= finalAnswers.size) break
+
+            val answer = finalAnswers[answerIndex]
+            val detectedValue = answer.detected
+            val consensusScore = answer.consensus
+
+            val answerString = correctAnswersMap[answer.testNumber] ?: ""
+            val correctChar = if (q < answerString.length) answerString[q] else ' '
+            val correctAnswer = when (correctChar.uppercaseChar()) {
+                'A', '1' -> 1
+                'B', '2' -> 2
+                'C', '3' -> 3
+                'D', '4' -> 4
+                else -> -1
+            }
+
+            val isCorrect = (detectedValue == correctAnswer)
+            val centerY = yStart + q * qHeight + qHeight / 2
+
+            // ==========================================
+            // 4-WAY TOGGLE LOGIC
+            // ==========================================
+            if (detectedValue in 1..choices) {
+                val cx = xStart + (detectedValue - 1) * cWidth + cWidth / 2
+                val center = Point(cx.toDouble(), centerY.toDouble())
+
+                if (isCorrect) {
+                    if (showCorrect) {
+                        val circleColor = if (consensusScore == 5) Scalar(0.0, 255.0, 0.0, 255.0) else Scalar(255.0, 255.0, 0.0, 255.0)
+                        Imgproc.circle(mat, center, 12, circleColor, 3)
+                    }
+                } else {
+                    if (showIncorrect) {
+                        val xColor = if (consensusScore == 5) Scalar(255.0, 0.0, 0.0, 255.0) else Scalar(255.0, 165.0, 0.0, 255.0)
+                        Imgproc.drawMarker(mat, center, xColor, Imgproc.MARKER_TILTED_CROSS, 20, 5)
+                    }
+                    if (showSupposed && correctAnswer in 1..choices) {
+                        val correctCx = xStart + (correctAnswer - 1) * cWidth + cWidth / 2
+                        Imgproc.circle(mat, Point(correctCx.toDouble(), centerY.toDouble()), 15, Scalar(255.0, 0.0, 255.0, 255.0), 3)
+                    }
+                }
+            } else if (detectedValue <= -2) {
+                if (showDouble) {
+                    Imgproc.line(mat, Point(xStart.toDouble(), centerY.toDouble()), Point(xEnd.toDouble(), centerY.toDouble()), Scalar(255.0, 0.0, 0.0, 255.0), 4)
+                    answer.shadedBubbles.forEach { choice ->
+                        if (choice in 1..choices) {
+                            val cx = xStart + (choice - 1) * cWidth + cWidth / 2
+                            val p1 = Point(cx - cWidth / 3.0, centerY - qHeight / 3.0)
+                            val p2 = Point(cx + cWidth / 3.0, centerY + qHeight / 3.0)
+                            Imgproc.rectangle(mat, p1, p2, Scalar(255.0, 0.0, 0.0, 255.0), 3)
+                        }
+                    }
+                }
+                if (showSupposed && correctAnswer in 1..choices) {
+                    val correctCx = xStart + (correctAnswer - 1) * cWidth + cWidth / 2
+                    Imgproc.circle(mat, Point(correctCx.toDouble(), centerY.toDouble()), 15, Scalar(255.0, 0.0, 255.0, 255.0), 3)
+                }
+            }
+            answerIndex++
+        }
+    }
+
+    val resultBitmap = androidx.core.graphics.createBitmap(mat.cols(), mat.rows())
+    Utils.matToBitmap(mat, resultBitmap)
+    mat.release()
+
+    return resultBitmap
 }

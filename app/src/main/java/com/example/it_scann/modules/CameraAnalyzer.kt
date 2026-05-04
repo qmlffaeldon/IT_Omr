@@ -83,7 +83,7 @@ class CameraAnalyzer(
             val debugBitmap = processAnswerSheetWithEnsemble(context, warped, qrData, detectedAnswers, correctAnswersMap)
 
             // 3. Pass the bitmap into the OMRResult callback
-            onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers, debugBitmap))
+            onResult(OMRResult(qrData?.toString(), qrData, detectedAnswers, debugBitmap, correctAnswersMap))
             warped.release()
 
         } catch (e: Exception) {
