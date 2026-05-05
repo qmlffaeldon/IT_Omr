@@ -6,11 +6,11 @@ plugins {
 }
 
 configure<com.android.build.api.dsl.ApplicationExtension> {
-    namespace = "com.example.it_scann"
+    namespace = "com.ntc.roec_scanner"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.it_scann"
+        applicationId = "com.ntc.roec_scanner"
         minSdk = 28
         targetSdk = 36
         versionCode = 1
