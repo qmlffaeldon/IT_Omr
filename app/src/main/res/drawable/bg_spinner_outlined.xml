@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- State when the spinner is pressed or focused (Highlight) -->
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <!-- Thicker border with your app's primary color -->
+            <stroke android:width="2dp" android:color="?attr/colorPrimary" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+
+    <!-- Default State -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <!-- Standard 1dp grey border -->
+            <stroke android:width="1dp" android:color="#8A000000" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+
+</selector>

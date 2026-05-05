@@ -37,6 +37,7 @@ data class OMRParams(
 fun analyzeImageFile(
     context: Context,
     imageUri: Uri,
+    manualQrData: QRCodeData? = null,
     onProgress: ((String) -> Unit)? = null,
     onDetected: (OMRResult) -> Unit,
     onValidationError: ((SheetValidationResult) -> Unit)? = null
@@ -58,21 +59,27 @@ fun analyzeImageFile(
             rotated
         }
 
-        onProgress?.invoke("Scanning QR code...")
-        val qrRawData = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
-        if (qrRawData == null) {
-            onValidationError?.invoke(
-                SheetValidationResult(
-                    isValid = false,
-                    reason = "QR code could not be detected.",
-                    failReason = ValidationFailReason.NO_QR,
-                    filledBubbleCount = 0,
-                    totalBubbles = 0
+        val qrData = if (manualQrData != null) {
+            manualQrData
+        } else {
+            onProgress?.invoke("Scanning QR code...")
+            val qrRawData = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
+            if (qrRawData == null) {
+                onValidationError?.invoke(
+                    SheetValidationResult(
+                        isValid = false,
+                        reason = "QR code could not be detected.",
+                        failReason = ValidationFailReason.NO_QR,
+                        filledBubbleCount = 0,
+                        totalBubbles = 0
+                    )
                 )
-            )
-            return // Stop processing
+                rotated.release()
+                finalMat.release()
+                return // Stop processing
+            }
+            parseQRCodeData(qrRawData)
         }
-        val qrData = parseQRCodeData(qrRawData)
 
         onProgress?.invoke("Aligning and warping sheet...")
 

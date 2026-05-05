@@ -36,6 +36,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.toColorInt
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.textview.MaterialTextView
 import com.ntc.roec_scanner.R
 import com.ntc.roec_scanner.database.AppDatabase
@@ -325,10 +326,15 @@ class CameraScanActivity : AppCompatActivity() {
                                     }
 
                                     ValidationFailReason.NO_QR -> {
-                                        AlertDialog.Builder(this)
+                                        AlertDialog.Builder(this@CameraScanActivity)
                                             .setTitle("QR Code Error")
-                                            .setMessage("A valid QR code couldn't be found on the uploaded image. Please ensure the QR code is clearly visible and try again.")
-                                            .setPositiveButton("OK", null)
+                                            .setMessage("A valid QR code couldn't be found on the paper. Please ensure the QR code is clearly visible and try again.")
+                                            .setPositiveButton("Broken/No QR") { _, _ ->
+                                                // Pass the savedUri so we can re-analyze it
+                                                showManualQrDialog(savedUri)
+                                            }
+                                            .setNegativeButton("Rescan", null)
+                                            .setCancelable(false)
                                             .show()
                                     }
 
@@ -969,7 +975,11 @@ class CameraScanActivity : AppCompatActivity() {
                                                 AlertDialog.Builder(this@CameraScanActivity)
                                                     .setTitle("QR Code Error")
                                                     .setMessage("A valid QR code couldn't be found on the paper. Please ensure the QR code is clearly visible and try again.")
-                                                    .setPositiveButton("OK", null)
+                                                    .setPositiveButton("Broken/No QR") { _, _ ->
+                                                        // Pass the savedUri so we can re-analyze it
+                                                        showManualQrDialog(savedUri)
+                                                    }
+                                                    .setNegativeButton("Rescan", null)
                                                     .setCancelable(false)
                                                     .show()
                                             }
@@ -1003,5 +1013,119 @@ class CameraScanActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    private fun showManualQrDialog(imageUri: Uri) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_manual_qr, null)
+
+        val etTestType = dialogView.findViewById<android.widget.AutoCompleteTextView>(R.id.etTestType)
+        val spSet = dialogView.findViewById<android.widget.Spinner>(R.id.spSet)
+        val etSeatNumber = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etSeatNumber)
+        val etExamDate = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etExamDate)
+        val spRegion = dialogView.findViewById<android.widget.AutoCompleteTextView>(R.id.spRegion)
+        val etPlace = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etPlace)
+
+        // Populate dropdowns using your global arrays from ResultsActivity.kt
+        etTestType.setAdapter(android.widget.ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, EXAM_TYPES))
+        spRegion.setAdapter(android.widget.ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, REGIONS_DISPLAY))
+        val setAdapter = android.widget.ArrayAdapter(this, R.layout.item_spinner_selected, SETS)
+        setAdapter.setDropDownViewResource(R.layout.item_spinner_dropdown)
+        spSet.adapter = setAdapter
+
+        // Setup DatePicker exactly like your ResultsActivity
+        etExamDate.setOnClickListener {
+            val datePicker = MaterialDatePicker.Builder.datePicker().setTitleText("Select Exam Date").build()
+            datePicker.addOnPositiveButtonClickListener { selection ->
+                val sdf = java.text.SimpleDateFormat("MM/dd/yyyy", java.util.Locale.US)
+                etExamDate.setText(sdf.format(java.util.Date(selection)))
+            }
+            datePicker.show(supportFragmentManager, "DATE_PICKER")
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Manual Data Entry")
+            .setView(dialogView)
+            .setPositiveButton("Proceed", null) // Handled below to prevent auto-close
+            .setNegativeButton("Cancel", null)
+            .setCancelable(false)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val testType = etTestType.text.toString().trim()
+                val seatNum = etSeatNumber.text.toString().toIntOrNull()
+
+                // Extract the set number from the spinner
+                val setPos = spSet.selectedItemPosition
+                val setNum = if (setPos >= 0) SETS[setPos].toInt() else 1
+
+                // Map the selected Display Region back to its corresponding Code
+                val regionDisplay = spRegion.text.toString().trim()
+                val regionIndex = REGIONS_DISPLAY.indexOf(regionDisplay)
+                val regionCode = if (regionIndex > 0) REGIONS_CODE[regionIndex] else ""
+
+                val date = etExamDate.text.toString().trim()
+                val place = etPlace.text.toString().trim()
+
+                // Validate requirements
+                if (testType.isEmpty() || seatNum == null) {
+                    android.widget.Toast.makeText(this, "Test Type and Seat Number are required.", android.widget.Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                // Construct rawData format substituting regionCode instead of the display name
+                val rawDataString = "MANUAL,$testType,$setNum,$seatNum,$regionCode,$date,$place"
+
+                val manualQrData = QRCodeData(
+                    rawData = rawDataString,
+                    testType = testType,
+                    setNumber = setNum,
+                    seatNumber = seatNum
+                )
+
+                dialog.dismiss()
+
+                // Re-run the analysis with the manual data
+                Thread {
+                    try {
+                        runOnUiThread { showLoading("Processing manual entry…") }
+
+                        analyzeImageFile(
+                            context = this@CameraScanActivity,
+                            imageUri = imageUri,
+                            manualQrData = manualQrData,
+                            onProgress = { msg -> updateLoadingText(msg) },
+                            onDetected = { result ->
+                                runOnUiThread {
+                                    hideLoading()
+                                    onAnswersDetected(
+                                        result.answers,
+                                        result.qrData,
+                                        result.debugBitmap,
+                                        result.correctAnswersMap,
+                                        result.originalBitmap,
+                                        result.corners
+                                    )
+                                }
+                            },
+                            onValidationError = { validation ->
+                                runOnUiThread {
+                                    hideLoading()
+                                    AlertDialog.Builder(this@CameraScanActivity)
+                                        .setTitle("Error")
+                                        .setMessage(validation.reason)
+                                        .setPositiveButton("OK", null)
+                                        .show()
+                                }
+                            }
+                        )
+                    } catch (e: Exception) {
+                        Log.e("OMR", "Error analyzing image with manual data", e)
+                        runOnUiThread { hideLoading() }
+                    }
+                }.start()
+            }
+        }
+        dialog.show()
     }
 }
