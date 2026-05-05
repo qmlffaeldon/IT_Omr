@@ -12,7 +12,6 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
-import android.graphics.RectF
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -71,6 +70,7 @@ fun showFullscreenImage(
     var showSupposed = initialSupposed
     var showDouble = initialDouble
     var isWarpMode = false
+    var currentDisplayBitmap: Bitmap? = null
     val cornerPoints = initialCorners?.map { PointF(it.x.toFloat(), it.y.toFloat()) }?.toMutableList() ?: mutableListOf()
 
     var scaleFactor = 1f
@@ -78,14 +78,22 @@ fun showFullscreenImage(
     val baseMatrix = Matrix()
     val currentMatrix = Matrix()
 
-    val warpOverlay = object : View(context) {
-        val paintLine = Paint().apply { color = Color.YELLOW; strokeWidth = 8f; style = Paint.Style.STROKE }
-        val paintCircle = Paint().apply { color = Color.YELLOW; strokeWidth = 6f; style = Paint.Style.STROKE }
-        val paintFill = Paint().apply { color = "#44FFFF00".toColorInt(); style = Paint.Style.FILL }
+    val warpOverlay = object : android.view.View(context) {
+        val paintLine = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; strokeWidth = 8f; style = android.graphics.Paint.Style.STROKE }
+        val paintCircle = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; strokeWidth = 6f; style = android.graphics.Paint.Style.STROKE }
+        val paintFill = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#44FFFF00"); style = android.graphics.Paint.Style.FILL }
         var activePointIndex = -1
         val touchRadius = 120f
 
-        override fun onDraw(canvas: Canvas) {
+        // Magnifier pre-allocations
+        private val srcRect = android.graphics.Rect()
+        private val dstRect = android.graphics.RectF()
+        private val matrixValues = FloatArray(9)
+        private val paintMagBackground = android.graphics.Paint().apply { color = android.graphics.Color.BLACK; style = android.graphics.Paint.Style.FILL }
+        private val paintMagBorder = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; strokeWidth = 6f; style = android.graphics.Paint.Style.STROKE }
+        private val paintMagCrosshair = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#88FFFF00"); strokeWidth = 3f; style = android.graphics.Paint.Style.STROKE }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
             super.onDraw(canvas)
             if (!isWarpMode || cornerPoints.size != 4) return
             val mapped = FloatArray(8)
@@ -93,6 +101,8 @@ fun showFullscreenImage(
             currentMatrix.mapPoints(mapped)
 
             val path = Path()
+            // Draw the main warp box
+            path.reset()
             path.moveTo(mapped[0], mapped[1]); path.lineTo(mapped[2], mapped[3])
             path.lineTo(mapped[4], mapped[5]); path.lineTo(mapped[6], mapped[7]); path.close()
 
@@ -101,8 +111,69 @@ fun showFullscreenImage(
 
             for (i in 0 until 4) {
                 canvas.drawCircle(mapped[i * 2], mapped[i * 2 + 1], 40f, paintCircle)
-                canvas.drawCircle(mapped[i * 2], mapped[i * 2 + 1], 10f, paintLine.apply { style = Paint.Style.FILL })
-                paintLine.style = Paint.Style.STROKE
+                canvas.drawCircle(mapped[i * 2], mapped[i * 2 + 1], 10f, paintLine.apply { style = android.graphics.Paint.Style.FILL })
+                paintLine.style = android.graphics.Paint.Style.STROKE
+            }
+
+            // ==========================================
+            // THE MAGNIFIER LOGIC
+            // ==========================================
+            val bmp = currentDisplayBitmap
+            if (activePointIndex != -1 && bmp != null) {
+                // 1. Calculate zoom based on current screen scale
+                currentMatrix.getValues(matrixValues)
+                val currentScale = matrixValues[android.graphics.Matrix.MSCALE_X]
+                val targetScale = currentScale * 2f // Make it 2x bigger than whatever the screen is showing
+
+                // 2. Define the size of the square box on the screen (e.g., 300px)
+                val magSizeScreen = 300f
+                val srcSizeBmp = magSizeScreen / targetScale
+
+                // 3. Get exact coordinates of the point being dragged
+                val bx = cornerPoints[activePointIndex].x
+                val by = cornerPoints[activePointIndex].y
+
+                // 4. Calculate source square (from the raw bitmap)
+                val srcLeft = bx - srcSizeBmp / 2
+                val srcTop = by - srcSizeBmp / 2
+                val srcRight = bx + srcSizeBmp / 2
+                val srcBottom = by + srcSizeBmp / 2
+
+                // Prevent crashing if the user drags off the edge of the image
+                val safeSrcLeft = srcLeft.coerceIn(0f, bmp.width.toFloat())
+                val safeSrcTop = srcTop.coerceIn(0f, bmp.height.toFloat())
+                val safeSrcRight = srcRight.coerceIn(0f, bmp.width.toFloat())
+                val safeSrcBottom = srcBottom.coerceIn(0f, bmp.height.toFloat())
+                srcRect.set(safeSrcLeft.toInt(), safeSrcTop.toInt(), safeSrcRight.toInt(), safeSrcBottom.toInt())
+
+                // 5. Calculate destination square (on the screen)
+                val mappedX = mapped[activePointIndex * 2]
+                val mappedY = mapped[activePointIndex * 2 + 1]
+
+                // Place the box 150px above the finger so it's not hidden
+                val dstLeft = mappedX - magSizeScreen / 2
+                val dstBottom = mappedY - 150f
+                val dstTop = dstBottom - magSizeScreen
+                val dstRight = dstLeft + magSizeScreen
+
+                // Adjust destination scale if we clamped the edges in Step 4
+                val scaleRatio = magSizeScreen / srcSizeBmp
+                val safeDstLeft = dstLeft + (safeSrcLeft - srcLeft) * scaleRatio
+                val safeDstTop = dstTop + (safeSrcTop - srcTop) * scaleRatio
+                val safeDstRight = dstRight - (srcRight - safeSrcRight) * scaleRatio
+                val safeDstBottom = dstBottom - (srcBottom - safeSrcBottom) * scaleRatio
+                dstRect.set(safeDstLeft, safeDstTop, safeDstRight, safeDstBottom)
+
+                // 6. Draw it to the canvas!
+                canvas.drawRect(dstRect, paintMagBackground) // Black background so image doesn't bleed through
+                canvas.drawBitmap(bmp, srcRect, dstRect, null) // The magnified image
+                canvas.drawRect(dstRect, paintMagBorder) // Yellow border
+
+                // 7. Draw the crosshair in the center of the box
+                val midY = safeDstTop + (safeDstBottom - safeDstTop) / 2
+                val midX = safeDstLeft + (safeDstRight - safeDstLeft) / 2
+                canvas.drawLine(safeDstLeft, midY, safeDstRight, midY, paintMagCrosshair)
+                canvas.drawLine(midX, safeDstTop, midX, safeDstBottom, paintMagCrosshair)
             }
         }
     }
@@ -113,7 +184,7 @@ fun showFullscreenImage(
     rootLayout.addView(warpOverlay)
 
     fun updateImage() {
-        val bmpToDraw = if (isWarpMode && originalBitmap != null) {
+        currentDisplayBitmap = if (isWarpMode && originalBitmap != null) {
             originalBitmap
         } else {
             drawDebugOverlays(
@@ -121,11 +192,13 @@ fun showFullscreenImage(
                 showCorrect, showIncorrect, showSupposed, showDouble
             )
         }
+
+        val bmpToDraw = currentDisplayBitmap!!
         imageView.setImageBitmap(bmpToDraw)
 
         imageView.post {
-            val viewRect = RectF(0f, 0f, imageView.width.toFloat(), imageView.height.toFloat())
-            val imgRect = RectF(0f, 0f, bmpToDraw.width.toFloat(), bmpToDraw.height.toFloat())
+            val viewRect = android.graphics.RectF(0f, 0f, imageView.width.toFloat(), imageView.height.toFloat())
+            val imgRect = android.graphics.RectF(0f, 0f, bmpToDraw.width.toFloat(), bmpToDraw.height.toFloat())
             baseMatrix.setRectToRect(imgRect, viewRect, Matrix.ScaleToFit.CENTER)
             scaleFactor = 1f
             currentMatrix.set(baseMatrix)
