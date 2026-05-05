@@ -15,7 +15,6 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.view.GestureDetector
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -51,7 +50,6 @@ fun showFullscreenImage(
     initialDouble: Boolean,
     originalBitmap: Bitmap?,
     initialCorners: List<Point>?,
-    onStateChanged: (Bitmap, Boolean, Boolean, Boolean, Boolean) -> Unit,
     onWarpSaved: (List<Point>) -> Unit
 ) {
     val dialog = Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
@@ -255,13 +253,13 @@ fun showFullscreenImage(
     }
 
     val closeButton = MaterialButton(context).apply {
-        text = "← Back"; cornerRadius = 16
+        text = context.getString(R.string.button_text_back); cornerRadius = 16
         setOnClickListener { dialog.dismiss() }
     }
     topBarLayout.addView(closeButton)
 
     val btnExitToggle = MaterialButton(context).apply {
-        text = "Exit Toggle"; cornerRadius = 16; visibility = View.GONE
+        text = context.getString(R.string.button_text_exit_toggle); cornerRadius = 16; visibility = View.GONE
         layoutParams = RelativeLayout.LayoutParams(
             RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT
         ).apply { addRule(RelativeLayout.CENTER_HORIZONTAL) }
@@ -269,7 +267,7 @@ fun showFullscreenImage(
     topBarLayout.addView(btnExitToggle)
 
     val btnFixWarp = MaterialButton(context).apply {
-        text = "Fix Warp"; cornerRadius = 16
+        text = context.getString(R.string.button_text_fix_warp); cornerRadius = 16
         layoutParams = RelativeLayout.LayoutParams(
             RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT
         ).apply { addRule(RelativeLayout.ALIGN_PARENT_END) }
@@ -284,7 +282,7 @@ fun showFullscreenImage(
     }
 
     val btnEnterToggle = MaterialButton(context).apply {
-        text = "Toggle Legends"; cornerRadius = 16
+        text = context.getString(R.string.button_text_toggle_legends); cornerRadius = 16
         layoutParams = RelativeLayout.LayoutParams(
             RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT
         ).apply { addRule(RelativeLayout.CENTER_HORIZONTAL) }
@@ -304,7 +302,13 @@ fun showFullscreenImage(
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(8, 8, 8, 8) }
             textSize = 12f; cornerRadius = 16; setTextColor(Color.WHITE)
             fun updateAppearance() {
-                text = "$title: ${if (state) "Shown" else "Hidden"}"
+                val statusText = if (state) {
+                    context.getString(R.string.toggle_text_shown)
+                } else {
+                    context.getString(R.string.toggle_text_hidden)
+                }
+
+                text = context.getString(R.string.toggle_status_format, title, statusText)
                 backgroundTintList = ColorStateList.valueOf((if (state) "#4CAF50" else "#F44336").toColorInt())
             }
             updateAppearance()
@@ -334,7 +338,7 @@ fun showFullscreenImage(
     btnFixWarp.setOnClickListener {
         if (!isWarpMode) {
             isWarpMode = true
-            btnFixWarp.text = "Save & Exit"
+            btnFixWarp.text = context.getString(R.string.button_text_save_exit)
             btnEnterToggle.visibility = View.GONE
             closeButton.visibility = View.GONE
             warpOverlay.visibility = View.VISIBLE
@@ -352,14 +356,13 @@ fun showFullscreenImage(
 
 fun showManualAbsenteeDialog(context: Context, onAbsenteesSaved: (List<Int>) -> Unit) {
     val bottomSheetDialog = BottomSheetDialog(context)
-    val view = LayoutInflater.from(context).inflate(R.layout.dialog_absentee_entry, null)
-    bottomSheetDialog.setContentView(view)
+    bottomSheetDialog.setContentView(R.layout.dialog_absentee_entry)
 
-    val etInput = view.findViewById<TextInputEditText>(R.id.etAbsentInput)
-    val inputLayout = view.findViewById<TextInputLayout>(R.id.absentInputLayout)
-    val chipGroup = view.findViewById<ChipGroup>(R.id.chipGroupAbsentees)
-    val btnCancel = view.findViewById<MaterialButton>(R.id.btnCancel)
-    val btnSave = view.findViewById<MaterialButton>(R.id.btnSaveAbsentees)
+    val etInput = bottomSheetDialog.findViewById<TextInputEditText>(R.id.etAbsentInput)!!
+    val inputLayout = bottomSheetDialog.findViewById<TextInputLayout>(R.id.absentInputLayout)!!
+    val chipGroup = bottomSheetDialog.findViewById<ChipGroup>(R.id.chipGroupAbsentees)!!
+    val btnCancel = bottomSheetDialog.findViewById<MaterialButton>(R.id.btnCancel)!!
+    val btnSave = bottomSheetDialog.findViewById<MaterialButton>(R.id.btnSaveAbsentees)!!
 
     fun parseSeatInput(input: String): List<Int> {
         val singleRegex = Regex("^\\d+$")
@@ -422,8 +425,10 @@ fun showManualAbsenteeDialog(context: Context, onAbsenteesSaved: (List<Int>) -> 
         val allAbsentees = mutableSetOf<Int>()
         for (i in 0 until chipGroup.childCount) {
             val chip = chipGroup.getChildAt(i) as? Chip
-            val seats = chip?.tag as? List<Int>
-            if (seats != null) allAbsentees.addAll(seats)
+            val seats = chip?.tag as? List<*>
+            if (seats != null) {
+                allAbsentees.addAll(seats.filterIsInstance<Int>())
+            }
         }
         onAbsenteesSaved(allAbsentees.toList().sorted())
         bottomSheetDialog.dismiss()

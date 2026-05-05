@@ -36,6 +36,7 @@
     <string name="title_text_region">Region</string>
     <string name="title_text_place_of_exam">Place of Exam</string>
     <string name="hint_text_place_of_exam">e.g. TIP QC</string>
+    <string name="toggle_status_format">%1$s: %2$s</string>
 
 
 
@@ -95,6 +96,13 @@
     <string name="btn_text_change">Change</string>
     <string name="btn_text_save_and_return"><![CDATA[Save & Return]]></string>
     <string name="loading_connecting_to_google_drive">Connecting to Google Drive…</string>
+    <string name="button_text_toggle_legends">Toggle Legends</string>
+    <string name="button_text_fix_warp">Fix Warp</string>
+    <string name="button_text_exit_toggle">Exit Toggle</string>
+    <string name="button_text_back">Back</string>
+    <string name="toggle_text_shown">Shown</string>
+    <string name="toggle_text_hidden">Hidden</string>
+    <string name="button_text_save_exit"><![CDATA[Save & Exit]]></string>
 
     <string-array name="element_tests">
         <item>Element 1</item>

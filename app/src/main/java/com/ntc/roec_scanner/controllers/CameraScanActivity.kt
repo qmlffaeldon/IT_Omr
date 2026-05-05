@@ -494,11 +494,6 @@ class CameraScanActivity : AppCompatActivity() {
                             currentCleanBitmap!!, qrData, currentAnswers, correctAnswersMap,
                             stateCorrect, stateIncorrect, stateSupposed, stateDouble,
                             originalBitmap, currentCorners,
-                            onStateChanged = { newBmp, sc, si, ss, sd ->
-                                stateCorrect = sc; stateIncorrect = si; stateSupposed =
-                                ss; stateDouble = sd
-                                imageView.setImageBitmap(newBmp)
-                            },
                             onWarpSaved = { newCorners ->
                                 android.widget.Toast.makeText(
                                     this@CameraScanActivity,
