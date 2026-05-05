@@ -41,6 +41,19 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         jniLibs {
             useLegacyPackaging = false
         }
+        resources {
+            excludes += listOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/license.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/notice.txt",
+                "META-INF/ASL2.0",
+                "META-INF/*.kotlin_module"
+            )
+        }
     }
 }
 
@@ -88,4 +101,15 @@ dependencies {
     kapt("androidx.room:room-compiler:$roomVersion")
 
     implementation("com.google.guava:guava:33.1.0-android")
+
+    // Google Sign-In
+    implementation("com.google.android.gms:play-services-auth:21.5.1")
+
+    // Google Drive API (v3) & Google API Client
+    implementation("com.google.api-client:google-api-client-android:2.9.0")
+    implementation("com.google.apis:google-api-services-drive:v3-rev20230822-2.0.0")
+    implementation("com.google.http-client:google-http-client-gson:2.1.0")
+
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 }

@@ -16,8 +16,30 @@ import com.example.it_scann.database.AnswerKeyImporter
 import com.example.it_scann.database.AppDatabase
 import com.example.it_scann.R
 import kotlinx.coroutines.launch
+import android.app.Activity
+import android.widget.Toast
+import com.example.it_scann.modules.GoogleDriveManager
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.common.api.ApiException
 
 class MainActivity : AppCompatActivity() {
+
+    private lateinit var driveManager: GoogleDriveManager
+
+    // This handles the result when the user comes back from the Google Login screen
+    private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            try {
+                val account = task.getResult(ApiException::class.java)
+                Toast.makeText(this, "Signed in as: ${account?.email}", Toast.LENGTH_SHORT).show()
+                // You are now authenticated!
+            } catch (e: ApiException) {
+                Log.w("GoogleDrive", "signInResult:failed code=" + e.statusCode)
+                Toast.makeText(this, "Sign-in failed", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
@@ -44,6 +66,21 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_results).setOnClickListener {
             Log.d("MainActivity", "Exam Results clicked")
             startActivity(Intent(this, ResultsActivity::class.java))
+        }
+
+        driveManager = GoogleDriveManager(this)
+
+        val loginButton = findViewById<Button>(R.id.btn_google_login)
+
+        // Check if already signed in to update UI
+        if (driveManager.getSignedInAccount() != null) {
+            loginButton.text = "Logged In"
+        }
+
+        loginButton.setOnClickListener {
+            // Launch the Google Sign-In Intent
+            val signInIntent = driveManager.getSignInClient().signInIntent
+            signInLauncher.launch(signInIntent)
         }
     }
 
