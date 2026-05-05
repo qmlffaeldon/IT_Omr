@@ -113,9 +113,83 @@ fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>) {
         }
     }
 
-    AlertDialog.Builder(context)
-        .setTitle("Results Exported")
-        .setMessage("Exported to Documents/ROEC_ExamResults")
-        .setPositiveButton("OK", null)
-        .show()
+    uri?.let { fileUri ->
+        val driveManager = GoogleDriveManager(context)
+        val account = driveManager.getSignedInAccount()
+
+        if (account != null) {
+            // 1. Build a custom loading dialog
+            val layout = android.widget.LinearLayout(context).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(64, 48, 64, 48)
+                gravity = android.view.Gravity.CENTER
+            }
+
+            val progressBar = android.widget.ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+                isIndeterminate = false
+                max = 100
+                progress = 0
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+            val statusText = android.widget.TextView(context).apply {
+                text = "Connecting to Google Drive..."
+                textSize = 14f
+                setPadding(0, 24, 0, 0)
+                gravity = android.view.Gravity.CENTER
+            }
+
+            layout.addView(progressBar)
+            layout.addView(statusText)
+
+            val loadingDialog = AlertDialog.Builder(context)
+                .setTitle("Syncing to PC")
+                .setView(layout)
+                .setCancelable(false) // Don't let them tap away while syncing
+                .create()
+
+            loadingDialog.show()
+
+            // 2. Start the background sync
+            Thread {
+                val driveService = driveManager.getDriveService(account)
+
+                driveManager.processAndUploadScannedResult(context, driveService, fileUri) { statusMessage, percent ->
+                    // 3. Update the UI on the Main Thread
+                    (context as? android.app.Activity)?.runOnUiThread {
+                        if (percent == -1) {
+                            // Error state
+                            loadingDialog.dismiss()
+                            AlertDialog.Builder(context)
+                                .setTitle("Sync Failed")
+                                .setMessage(statusMessage)
+                                .setPositiveButton("OK", null)
+                                .show()
+                        } else {
+                            // Progress state
+                            statusText.text = statusMessage
+                            progressBar.progress = percent
+
+                            if (percent == 100) {
+                                // Done!
+                                loadingDialog.dismiss()
+                                android.widget.Toast.makeText(context, "Successfully Uploaded Results to PC!", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+            }.start()
+
+        } else {
+            // User isn't logged in, just show normal local export success
+            AlertDialog.Builder(context)
+                .setTitle("Local Export Only")
+                .setMessage("Exported to Documents/ROEC_ExamResults.\n\nSign in with Google to enable automatic PC syncing.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
+    }
 }
