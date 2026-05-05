@@ -16,10 +16,10 @@ abstract class AppDatabase : RoomDatabase() {
         fun getDatabase(context: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "answer_key_db"
-                ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+                                context.applicationContext,
+                                AppDatabase::class.java,
+                                "answer_key_db"
+                            ).fallbackToDestructiveMigration(false).build().also { INSTANCE = it }
             }
     }
 }

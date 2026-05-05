@@ -16,7 +16,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/exam_date_title"
+            android:text="@string/title_text_exam_date"
             android:textStyle="bold" />
 
         <com.google.android.material.textfield.TextInputLayout
@@ -31,14 +31,14 @@
                 android:clickable="true"
                 android:cursorVisible="false"
                 android:focusable="false"
-                android:hint="@string/date_format_hint" />
+                android:hint="@string/hint_text_date_format" />
         </com.google.android.material.textfield.TextInputLayout>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="@string/region_title"
+            android:text="@string/title_text_region"
             android:textStyle="bold" />
 
         <com.google.android.material.textfield.TextInputLayout
@@ -58,7 +58,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="@string/place_of_exam_title"
+            android:text="@string/title_text_place_of_exam"
             android:textStyle="bold" />
 
         <com.google.android.material.textfield.TextInputLayout
@@ -70,7 +70,7 @@
                 android:id="@+id/etPlace"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="@string/place_of_exam_hint" />
+                android:hint="@string/hint_text_place_of_exam" />
         </com.google.android.material.textfield.TextInputLayout>
     </LinearLayout>
 
@@ -122,7 +122,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            android:text="@string/btn_text_save_changes"
+            android:text="@string/button_text_save_changes"
             android:textColor="@android:color/white"
             app:backgroundTint="#515CB3"
             tools:ignore="VisualLintBounds, VisualLintPartiallyHidden" />
@@ -132,7 +132,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            android:text="@string/btn_text_delete_all"
+            android:text="@string/button_text_delete_all"
             android:textColor="@android:color/white"
             app:backgroundTint="#DC273B"
             tools:ignore="VisualLintBounds, VisualLintPartiallyHidden" />
@@ -141,7 +141,7 @@
             android:id="@+id/fabExport"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/btn_text_export_to_csv"
+            android:text="@string/button_text_export_to_csv"
             android:textColor="@android:color/white"
             app:backgroundTint="#2F9248"
             tools:ignore="VisualLintBounds, VisualLintPartiallyHidden" />

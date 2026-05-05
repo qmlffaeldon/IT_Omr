@@ -521,7 +521,7 @@ class CameraScanActivity : AppCompatActivity() {
                                             )
                                         }
 
-                                    if (updatedResult?.debugBitmap != null) {
+                                    if (updatedResult.debugBitmap != null) {
                                         currentCleanBitmap = updatedResult.debugBitmap
                                         currentAnswers = updatedResult.answers
                                         currentCorners = newCorners
@@ -754,11 +754,7 @@ class CameraScanActivity : AppCompatActivity() {
                         }
                     },
 
-                    isPreviewMode = true,
-
-                    onValidationError = { errorMsg ->
-                        Log.d("OMR", errorMsg)
-                    }
+                    isPreviewMode = true
 
 
                 ))

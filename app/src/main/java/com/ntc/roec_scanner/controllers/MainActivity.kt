@@ -1,9 +1,9 @@
+@file:Suppress("DEPRECATION")
+
 package com.ntc.roec_scanner.controllers
 
-import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.opencv.android.OpenCVLoader
 import java.net.URL
+import androidx.core.graphics.drawable.toDrawable
 
 class MainActivity : AppCompatActivity() {
 
@@ -35,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loginButton: MaterialButton
 
     private val signInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
+        if (result.resultCode == RESULT_OK) {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
                 val account = task.getResult(ApiException::class.java)
@@ -79,7 +80,6 @@ class MainActivity : AppCompatActivity() {
 
         driveManager = GoogleDriveManager(this)
 
-        driveManager = GoogleDriveManager(this)
         loginButton = findViewById(R.id.btn_google_login)
 
         // Check if already signed in on app launch
@@ -116,7 +116,7 @@ class MainActivity : AppCompatActivity() {
                 try {
                     val stream = URL(photoUrl.toString()).openStream()
                     val bitmap = BitmapFactory.decodeStream(stream)
-                    val drawable = BitmapDrawable(resources, bitmap)
+                    val drawable = bitmap.toDrawable(resources)
 
                     withContext(Dispatchers.Main) {
                         loginButton.icon = drawable
@@ -143,7 +143,7 @@ class MainActivity : AppCompatActivity() {
     ) { uri ->
         uri?.let {
             lifecycleScope.launch {
-                val db = AppDatabase.Companion.getDatabase(this@MainActivity)
+                val db = AppDatabase.getDatabase(this@MainActivity)
                 val result =
                     AnswerKeyImporter.importFromUri(this@MainActivity, it, db.answerKeyDao())
 

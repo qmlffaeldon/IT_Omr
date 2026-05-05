@@ -7,6 +7,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import androidx.appcompat.app.AlertDialog
+import com.ntc.roec_scanner.R
 import com.ntc.roec_scanner.database.ExamWithElements
 import com.ntc.roec_scanner.grading.ExamConfigurations
 import java.text.SimpleDateFormat
@@ -84,9 +85,9 @@ fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>) {
                 val elemScores = if (exam.isAbsent) {
                     val firstExpected = expectedElements.filter { it != 99 }.minOrNull()
                     (1..10).joinToString(",") { elemNumber ->
-                        when {
-                            elemNumber == firstExpected -> "A"
-                            elemNumber in expectedElements -> ""
+                        when (elemNumber) {
+                            firstExpected -> "A"
+                            in expectedElements -> ""
                             else -> ""
                         }
                     }
@@ -136,7 +137,7 @@ fun exportBatchToCSV(context: Context, exams: List<ExamWithElements>) {
             }
 
             val statusText = android.widget.TextView(context).apply {
-                text = "Connecting to Google Drive..."
+                text = context.getString(R.string.loading_connecting_to_google_drive)
                 textSize = 14f
                 setPadding(0, 24, 0, 0)
                 gravity = android.view.Gravity.CENTER

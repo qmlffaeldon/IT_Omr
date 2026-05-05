@@ -22,9 +22,20 @@
     <string name="button_text_key">Answer Keys</string>
     <string name="button_text_results">View Scanned Results</string>
     <string name="card_popup_button_text_scan_results">Tap here to see results</string>
+    <string name="button_text_save_changes">Save Changes</string>
+    <string name="button_text_delete_all">Delete All</string>
+    <string name="button_text_export_to_csv">Export to CSV</string>
 
     <!--  Text Views -->
     <string name="text_roec">ROEC</string>
+    <string name="help_change_exam">Select rows to change their Exam Type. Note: Changing an exam type will permanently wipe its existing element scores.</string>
+    <string name="text_manual_absentee_entry">Manual Absentee Entry</string>
+    <string name="text_absentee_entry_instructions">Type a seat number (e.g., 5) or range (e.g., 10–15) and press Space or Enter.</string>
+    <string name="title_text_exam_date">Exam Date</string>
+    <string name="hint_text_date_format">MM/DD/YYYY</string>
+    <string name="title_text_region">Region</string>
+    <string name="title_text_place_of_exam">Place of Exam</string>
+    <string name="hint_text_place_of_exam">e.g. TIP QC</string>
 
 
 
@@ -70,29 +81,20 @@
         libero vel nunc consequat, quis tincidunt nisl eleifend. Cras bibendum enim a justo luctus
         vestibulum. Fusce dictum libero quis erat maximus, vitae volutpat diam dignissim.
     </string>
-    <string name="exam_date_title">Exam Date</string>
-    <string name="date_format_hint">MM/DD/YYYY</string>
-    <string name="region_title">Region</string>
-    <string name="place_of_exam_title">Place of Exam</string>
-    <string name="place_of_exam_hint">e.g. TIP QC</string>
+
     <string name="no_data_text">No data yet</string>
     <string name="btn_text_change_exam_types">Change Exam Types</string>
     <string name="content_desc_menu_button">Results Screen Menu Button</string>
     <string name="hint_select_region">Select Region</string>
-    <string name="btn_text_save_changes">Save Changes</string>
-    <string name="btn_text_delete_all">Delete All</string>
-    <string name="btn_text_export_to_csv">Export to CSV</string>
-    <string name="text_manual_absentee_entry">Manual Absentee Entry</string>
-    <string name="text_absentee_entry_instructions">Type a seat number (e.g., 5) or range (e.g., 10-15) and press Space or Enter.</string>
     <string name="hint_seat_number_or_range">Seat No. or Range</string>
     <string name="btn_text_cancel">Cancel</string>
     <string name="btn_save_absentees">Save Absentees</string>
     <string name="text_answer_key">Answer Key</string>
     <string name="content_desc_manual_absentee_entry">Manual Absentee Entry</string>
     <string name="text_processing">Processing image…</string>
-    <string name="help_change_exam">Select rows to change their Exam Type. Note: Changing an exam type will permanently wipe its existing element scores.</string>
     <string name="btn_text_change">Change</string>
     <string name="btn_text_save_and_return"><![CDATA[Save & Return]]></string>
+    <string name="loading_connecting_to_google_drive">Connecting to Google Drive…</string>
 
     <string-array name="element_tests">
         <item>Element 1</item>

@@ -35,10 +35,68 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.core.graphics.toColorInt
 
-val REGIONS_DISPLAY = arrayOf("[ Please select a region ]", "BARMM", "CAR", "Central Office", "REGION I", "REGION II", "REGION III", "REGION IV-A", "REGION IV-B", "REGION IX", "REGION NCR", "NIR", "REGION V", "REGION VI", "REGION VII", "REGION VIII", "REGION X", "REGION XI", "REGION XII", "REGION XIII")
-val REGIONS_CODE = arrayOf("", "BARMM", "CAR", "CO", "I", "II", "III", "IV-A", "IV-B", "IX", "NCR", "NIR", "V", "VI", "VII", "VIII", "X", "XI", "XII", "XIII")
-val EXAM_TYPES = arrayOf("TYPEA-080910", "TYPEA-080910COD", "TYPEB-02", "TYPEB-050607", "TYPEC-020304", "TYPEC-0304", "TYPED-02", "FCRO-04", "FCRO-01020304", "FCRO-0304", "MORSE-CODE", "RROC-01", "FCRO-010203", "FCRO-0102")
+val REGIONS_DISPLAY = arrayOf(
+    "[ Please select a region ]",
+    "BARMM",
+    "CAR",
+    "Central Office",
+    "REGION I",
+    "REGION II",
+    "REGION III",
+    "REGION IV-A",
+    "REGION IV-B",
+    "REGION IX",
+    "REGION NCR",
+    "NIR",
+    "REGION V",
+    "REGION VI",
+    "REGION VII",
+    "REGION VIII",
+    "REGION X",
+    "REGION XI",
+    "REGION XII",
+    "REGION XIII"
+)
+val REGIONS_CODE = arrayOf(
+    "",
+    "BARMM",
+    "CAR",
+    "CO",
+    "I",
+    "II",
+    "III",
+    "IV-A",
+    "IV-B",
+    "IX",
+    "NCR",
+    "NIR",
+    "V",
+    "VI",
+    "VII",
+    "VIII",
+    "X",
+    "XI",
+    "XII",
+    "XIII"
+)
+val EXAM_TYPES = arrayOf(
+    "TYPEA-080910",
+    "TYPEA-080910COD",
+    "TYPEB-02",
+    "TYPEB-050607",
+    "TYPEC-020304",
+    "TYPEC-0304",
+    "TYPED-02",
+    "FCRO-04",
+    "FCRO-01020304",
+    "FCRO-0304",
+    "MORSE-CODE",
+    "RROC-01",
+    "FCRO-010203",
+    "FCRO-0102"
+)
 val SETS = arrayOf("1", "2", "3", "4", "5")
 
 fun getFriendlyExamName(examCode: String): String = when (examCode) {
@@ -99,13 +157,15 @@ class ResultsActivity : AppCompatActivity() {
     }
 
     private fun setupRegionDropdown() {
-        val regionAdapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, REGIONS_DISPLAY)
+        val regionAdapter =
+            ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, REGIONS_DISPLAY)
         spRegion.setAdapter(regionAdapter)
     }
 
     private fun setupDatePicker() {
         etExamDate.setOnClickListener {
-            val datePicker = MaterialDatePicker.Builder.datePicker().setTitleText("Select Exam Date").build()
+            val datePicker =
+                MaterialDatePicker.Builder.datePicker().setTitleText("Select Exam Date").build()
             datePicker.addOnPositiveButtonClickListener { selection ->
                 val sdf = SimpleDateFormat("MM/dd/yyyy", Locale.US)
                 etExamDate.setText(sdf.format(Date(selection)))
@@ -116,7 +176,8 @@ class ResultsActivity : AppCompatActivity() {
 
     private fun loadData() {
         lifecycleScope.launch {
-            val exams = AppDatabase.getDatabase(this@ResultsActivity).answerKeyDao().getAllExamsWithElements()
+            val exams = AppDatabase.getDatabase(this@ResultsActivity).answerKeyDao()
+                .getAllExamsWithElements()
 
             if (exams.isEmpty()) {
                 tvNoData.visibility = View.VISIBLE
@@ -147,11 +208,12 @@ class ResultsActivity : AppCompatActivity() {
                 val baseElements = ExamConfigurations.getTestNumbersForTestType(examCode)
 
                 // Artificially append 98 for the UI to draw the CompleteRow checkbox
-                val expectedElements = if (examCode == "TYPEA-080910COD" || examCode == "MORSE-CODE") {
-                    baseElements + listOf(98)
-                } else {
-                    baseElements
-                }
+                val expectedElements =
+                    if (examCode == "TYPEA-080910COD" || examCode == "MORSE-CODE") {
+                        baseElements + listOf(98)
+                    } else {
+                        baseElements
+                    }
 
                 listItems.add(ResultListItem.Header(examCode, expectedElements))
                 for (exam in group) {
@@ -198,9 +260,10 @@ class ResultsActivity : AppCompatActivity() {
                 fabMenuContainer.alpha = 0f
                 fabMenuContainer.animate().translationY(0f).alpha(1f).setDuration(250).start()
             } else {
-                fabMenuContainer.animate().translationY(150f).alpha(0f).setDuration(250).withEndAction {
-                    fabMenuContainer.visibility = View.GONE
-                }.start()
+                fabMenuContainer.animate().translationY(150f).alpha(0f).setDuration(250)
+                    .withEndAction {
+                        fabMenuContainer.visibility = View.GONE
+                    }.start()
             }
         }
 
@@ -245,7 +308,8 @@ class ResultsActivity : AppCompatActivity() {
 
         fabExport.setOnClickListener {
             lifecycleScope.launch {
-                val exams = AppDatabase.getDatabase(this@ResultsActivity).answerKeyDao().getAllExamsWithElements()
+                val exams = AppDatabase.getDatabase(this@ResultsActivity).answerKeyDao()
+                    .getAllExamsWithElements()
                 exportBatchToCSV(this@ResultsActivity, exams)
             }
         }
@@ -261,16 +325,18 @@ class ResultsActivity : AppCompatActivity() {
 
             dialog.setOnShowListener {
                 val btnYes = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
-                btnYes.setBackgroundColor(android.graphics.Color.parseColor("#2F9248")) // Green fill
+                btnYes.setBackgroundColor("#2F9248".toColorInt()) // Green fill
                 btnYes.setTextColor(android.graphics.Color.WHITE)
                 btnYes.setOnClickListener {
                     lifecycleScope.launch {
-                        AppDatabase.getDatabase(this@ResultsActivity).answerKeyDao().deleteAllResults()
+                        AppDatabase.getDatabase(this@ResultsActivity).answerKeyDao()
+                            .deleteAllResults()
                         etExamDate.text.clear()
                         etPlace.text.clear()
                         spRegion.setText(REGIONS_DISPLAY[0], false)
                         loadData()
-                        Toast.makeText(this@ResultsActivity, "All data deleted", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@ResultsActivity, "All data deleted", Toast.LENGTH_SHORT)
+                            .show()
                         dialog.dismiss()
                     }
                 }
@@ -284,7 +350,8 @@ class ResultsActivity : AppCompatActivity() {
     }
 }
 
-class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+class ResultsAdapter(private var data: MutableList<ResultListItem>) :
+    RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private val TYPE_HEADER = 0
     private val TYPE_ROW = 1
@@ -294,9 +361,11 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
         data.clear()
         data.addAll(newData)
         notifyDataSetChanged()
+        notifyDataSetChanged()
     }
 
-    override fun getItemViewType(position: Int) = if (data[position] is ResultListItem.Header) TYPE_HEADER else TYPE_ROW
+    override fun getItemViewType(position: Int) =
+        if (data[position] is ResultListItem.Header) TYPE_HEADER else TYPE_ROW
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
@@ -339,7 +408,11 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
                 }
 
                 val tv = TextView(container.context).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weightPerDynamicColumn)
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        weightPerDynamicColumn
+                    )
                     text = headerName
                     gravity = Gravity.CENTER
                     textAlignment = View.TEXT_ALIGNMENT_CENTER
@@ -350,7 +423,8 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
         }
     }
 
-    class RowViewHolder(view: View, private val adapter: ResultsAdapter) : RecyclerView.ViewHolder(view) {
+    class RowViewHolder(view: View, private val adapter: ResultsAdapter) :
+        RecyclerView.ViewHolder(view) {
         private val container: LinearLayout = view.findViewById(R.id.rowContainer)
         private val tvSeat: TextView = view.findViewById(R.id.tvSeat)
         private val spSet: Spinner = view.findViewById(R.id.spSet)
@@ -370,6 +444,7 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
                 override fun onItemSelected(p0: AdapterView<*>?, p1: View?, pos: Int, p3: Long) {
                     exam.setNumber = SETS[pos].toInt()
                 }
+
                 override fun onNothingSelected(p0: AdapterView<*>?) {}
             }
 
@@ -406,7 +481,8 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
 
                 // 2. Add single "ABSENT" TextView
                 val tvAbsent = TextView(container.context).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 70f)
+                    layoutParams =
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 70f)
                     text = "ABSENT"
                     gravity = Gravity.CENTER
                     textAlignment = View.TEXT_ALIGNMENT_CENTER
@@ -424,12 +500,19 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
                 for (elementNum in item.elements) {
                     if (elementNum == 98) {
                         val wrapper = LinearLayout(container.context).apply {
-                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weightPerDynamicColumn)
+                            layoutParams = LinearLayout.LayoutParams(
+                                0,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                weightPerDynamicColumn
+                            )
                             gravity = Gravity.CENTER
                         }
 
                         val cb = CheckBox(container.context).apply {
-                            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                            layoutParams = LinearLayout.LayoutParams(
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT
+                            )
 
                             isChecked = exam.completeRow == "Yes"
                             setOnCheckedChangeListener { _, isChecked ->
@@ -440,7 +523,11 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
                         container.addView(wrapper)
                     } else {
                         val et = EditText(container.context).apply {
-                            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weightPerDynamicColumn)
+                            layoutParams = LinearLayout.LayoutParams(
+                                0,
+                                ViewGroup.LayoutParams.WRAP_CONTENT,
+                                weightPerDynamicColumn
+                            )
                             inputType = InputType.TYPE_CLASS_NUMBER
                             gravity = Gravity.CENTER
                             textSize = 16f
@@ -455,7 +542,11 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
 
                                     if (newScore > 25) {
                                         setBackgroundColor(android.graphics.Color.parseColor("#FFCDD2"))
-                                        Toast.makeText(context, "Maximum score is only up to 25", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(
+                                            context,
+                                            "Maximum score is only up to 25",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     } else {
                                         setBackgroundColor(android.graphics.Color.TRANSPARENT)
                                     }
@@ -465,16 +556,35 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) : RecyclerVi
                                         val updatedEntity = existingEntity.copy(score = newScore)
                                         elementMap[elementNum] = updatedEntity
                                         val mutableList = item.exam.elements as MutableList
-                                        val index = mutableList.indexOfFirst { it.elementNumber == elementNum }
+                                        val index =
+                                            mutableList.indexOfFirst { it.elementNumber == elementNum }
                                         if (index != -1) mutableList[index] = updatedEntity
                                     } else {
-                                        val newEntity = ElementScoreEntity(examResultId = exam.id, elementNumber = elementNum, score = newScore)
+                                        val newEntity = ElementScoreEntity(
+                                            examResultId = exam.id,
+                                            elementNumber = elementNum,
+                                            score = newScore
+                                        )
                                         (item.exam.elements as MutableList).add(newEntity)
                                         elementMap[elementNum] = newEntity
                                     }
                                 }
-                                override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
-                                override fun onTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+
+                                override fun beforeTextChanged(
+                                    p0: CharSequence?,
+                                    p1: Int,
+                                    p2: Int,
+                                    p3: Int
+                                ) {
+                                }
+
+                                override fun onTextChanged(
+                                    p0: CharSequence?,
+                                    p1: Int,
+                                    p2: Int,
+                                    p3: Int
+                                ) {
+                                }
                             })
                         }
                         container.addView(et)

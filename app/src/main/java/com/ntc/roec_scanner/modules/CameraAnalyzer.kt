@@ -19,7 +19,6 @@ class CameraAnalyzer(
     private val context: Context,
     private val onResult: (OMRResult) -> Unit,
     private val onScanFeedback: (ScanFeedback) -> Unit,
-    private val onValidationError: ((String) -> Unit)? = null,
     private val isPreviewMode: Boolean = false
 ) : ImageAnalysis.Analyzer {
 
@@ -78,7 +77,7 @@ class CameraAnalyzer(
             val detectedAnswers = mutableListOf<DetectedAnswer>()
 
             // 1. Fetch the Answer Key from the database
-            val db = com.ntc.roec_scanner.database.AppDatabase.Companion.getDatabase(context)
+            val db = com.ntc.roec_scanner.database.AppDatabase.getDatabase(context)
             val answerKeysList = kotlinx.coroutines.runBlocking {
                 db.answerKeyDao().getAnswerKeysForExam(
                     examCode = qrData?.testType ?: "",
