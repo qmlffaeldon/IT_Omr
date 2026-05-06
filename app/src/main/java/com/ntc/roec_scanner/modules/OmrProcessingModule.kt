@@ -733,6 +733,11 @@ fun drawDebugOverlays(
     val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
     val choices = 4
 
+    // 1. Pre-parse the answer keys using the EXACT SAME parser as your grading module
+    val parsedKeysMap = correctAnswersMap.mapValues {
+        com.ntc.roec_scanner.grading.parseAnswerKey(it.value)
+    }
+
     var answerIndex = 0
     for (col in columns) {
         val imgH = mat.rows()
@@ -753,17 +758,23 @@ fun drawDebugOverlays(
             val detectedValue = answer.detected
             val consensusScore = answer.consensus
 
-            val answerString = correctAnswersMap[answer.testNumber] ?: ""
-            val correctChar = if (q < answerString.length) answerString[q] else ' '
-            val correctAnswer = when (correctChar.uppercaseChar()) {
-                'A', '1' -> 1
-                'B', '2' -> 2
-                'C', '3' -> 3
-                'D', '4' -> 4
-                else -> -1
+            // 2. Fetch the parsed valid characters for this specific question
+            val parsedKey = parsedKeysMap[answer.testNumber] ?: emptyList()
+            val validChars = if (q < parsedKey.size) parsedKey[q].uppercase() else ""
+
+            // 3. Map the valid characters ('A', 'B', 'AB') into a List of integers
+            val correctAnswersList = validChars.mapNotNull {
+                when (it) {
+                    'A', '1' -> 1
+                    'B', '2' -> 2
+                    'C', '3' -> 3
+                    'D', '4' -> 4
+                    else -> null
+                }
             }
 
-            val isCorrect = (detectedValue == correctAnswer)
+            // 4. Check if the scanned value exists ANYWHERE in the list of valid answers
+            val isCorrect = correctAnswersList.contains(detectedValue)
             val centerY = yStart + q * qHeight + qHeight / 2
 
             // ==========================================
@@ -795,15 +806,20 @@ fun drawDebugOverlays(
                             )
                         Imgproc.drawMarker(mat, center, xColor, Imgproc.MARKER_TILTED_CROSS, 20, 5)
                     }
-                    if (showSupposed && correctAnswer in 1..choices) {
-                        val correctCx = xStart + (correctAnswer - 1) * cWidth + cWidth / 2
-                        Imgproc.circle(
-                            mat,
-                            Point(correctCx.toDouble(), centerY.toDouble()),
-                            15,
-                            Scalar(255.0, 0.0, 255.0, 255.0),
-                            3
-                        )
+                    if (showSupposed) {
+                        // 5. Loop through ALL possible correct answers and draw a circle for each
+                        for (correctAns in correctAnswersList) {
+                            if (correctAns in 1..choices) {
+                                val correctCx = xStart + (correctAns - 1) * cWidth + cWidth / 2
+                                Imgproc.circle(
+                                    mat,
+                                    Point(correctCx.toDouble(), centerY.toDouble()),
+                                    15,
+                                    Scalar(255.0, 0.0, 255.0, 255.0),
+                                    3
+                                )
+                            }
+                        }
                     }
                 }
             } else if (detectedValue <= -2) {
@@ -824,15 +840,20 @@ fun drawDebugOverlays(
                         }
                     }
                 }
-                if (showSupposed && correctAnswer in 1..choices) {
-                    val correctCx = xStart + (correctAnswer - 1) * cWidth + cWidth / 2
-                    Imgproc.circle(
-                        mat,
-                        Point(correctCx.toDouble(), centerY.toDouble()),
-                        15,
-                        Scalar(255.0, 0.0, 255.0, 255.0),
-                        3
-                    )
+                if (showSupposed) {
+                    // 6. Loop through ALL possible correct answers for double/errors too
+                    for (correctAns in correctAnswersList) {
+                        if (correctAns in 1..choices) {
+                            val correctCx = xStart + (correctAns - 1) * cWidth + cWidth / 2
+                            Imgproc.circle(
+                                mat,
+                                Point(correctCx.toDouble(), centerY.toDouble()),
+                                15,
+                                Scalar(255.0, 0.0, 255.0, 255.0),
+                                3
+                            )
+                        }
+                    }
                 }
             }
             answerIndex++

@@ -93,7 +93,7 @@ fun detectQRCodeWithDetailedDebug(
             Imgproc.adaptiveThreshold(
                 scaled, adaptive, 255.0,
                 Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                Imgproc.THRESH_BINARY, 31, 8.0
+                Imgproc.THRESH_BINARY, 99, 5.0
             )
 
             // Add the new adaptive Mat to our list of attempts!
