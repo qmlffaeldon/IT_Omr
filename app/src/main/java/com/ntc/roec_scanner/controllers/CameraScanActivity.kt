@@ -532,14 +532,11 @@ class CameraScanActivity : AppCompatActivity() {
                         append("Seat: $seatNumber  |  Set: $setNumber\n")
                         append("----------------\n")
 
-                        var hasFailingElement = false
                         var standardElementCount = 0
                         var standardElementTotalScore = 0
 
                         scores.toSortedMap().forEach { (testNumber, score) ->
                             val percent = score * 4
-                            if (score < 13) hasFailingElement = true
-
                             if (testNumber == 99) {
                                 append("Code Score: $score / 25 ($percent%)\n")
                             } else {
@@ -565,14 +562,14 @@ class CameraScanActivity : AppCompatActivity() {
                         val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
                         append("Average: $formattedAverage%\n")
 
-                        val isFailed = averagePercent < 72.0 || hasFailingElement
-                        val remarks = if (isFailed) {
-                            if (examCode == "TYPEC-020304" || examCode == "TYPEC-0304") {
-                                "Downgraded to Element D"
-                            } else "Failed"
-                        } else "Passed"
+                        // --- CALL REFACTORED GRADING LOGIC ---
+                        val remarks = com.ntc.roec_scanner.grading.calculateExamRemarks(examCode, scores, completeRow)
 
-                        append("Remarks: $remarks")
+                        if (examCode == "TYPEA-080910COD") {
+                            append("\nRemarks:\n$remarks")
+                        } else {
+                            append("Remarks: $remarks")
+                        }
                     }
                 }
 
