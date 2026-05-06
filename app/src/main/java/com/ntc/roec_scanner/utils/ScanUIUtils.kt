@@ -38,7 +38,7 @@ import kotlin.math.sqrt
 @SuppressLint("ClickableViewAccessibility")
 fun showFullscreenImage(
     context: Context,
-    cleanBitmap: Bitmap,
+    cleanBitmap: Bitmap?,
     qrData: QRCodeData?,
     detectedAnswers: List<DetectedAnswer>,
     correctAnswersMap: Map<Int, String>,

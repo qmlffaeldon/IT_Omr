@@ -44,6 +44,7 @@ fun validateAnswerSheet(
 ): SheetValidationResult {
 
     val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
+        .filter { it.name != "Code" }
     val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
     val choices = 4
 

@@ -86,6 +86,24 @@ fun analyzeImageFile(
             parseQRCodeData(qrRawData)
         }
 
+        if (qrData?.testType == "MORSE-CODE") {
+            onProgress?.invoke("Morse Code detected. Skipping optical scan...")
+            onDetected(
+                OMRResult(
+                    qrCode = qrData.rawData,
+                    qrData = qrData,
+                    answers = emptyList(), // No bubbles to scan
+                    debugBitmap = null,
+                    correctAnswersMap = emptyMap(),
+                    originalBitmap = null,
+                    corners = null
+                )
+            )
+            rotated.release()
+            finalMat.release()
+            return // Stop image processing immediately!
+        }
+
         onProgress?.invoke("Aligning and warping sheet...")
 
         // 1. Convert the original untouched Mat into a Bitmap to pass to the UI
@@ -302,6 +320,7 @@ fun processAnswerSheetWithQRData(
     sweepName: String
 ) {
     val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
+        .filter { it.name != "Code" }
     val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
     val choices = 4
 
@@ -716,7 +735,7 @@ fun saveDebugMat(context: Context, mat: Mat, name: String) {
 }
 
 fun drawDebugOverlays(
-    cleanBitmap: Bitmap,
+    cleanBitmap: Bitmap?,
     qrData: QRCodeData?,
     finalAnswers: List<DetectedAnswer>,
     correctAnswersMap: Map<Int, String>,
@@ -730,6 +749,7 @@ fun drawDebugOverlays(
     Utils.bitmapToMat(cleanBitmap, mat)
 
     val columns = ExamConfigurations.getColumnsForTestType(qrData?.testType)
+        .filter { it.name != "Code" }
     val questions = ExamConfigurations.getQuestionsForTestType(qrData?.testType)
     val choices = 4
 

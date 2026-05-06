@@ -42,14 +42,12 @@ import com.ntc.roec_scanner.R
 import com.ntc.roec_scanner.database.AppDatabase
 import com.ntc.roec_scanner.database.ElementScoreEntity
 import com.ntc.roec_scanner.database.ExamResultsEntity
-import com.ntc.roec_scanner.grading.ExamConfigurations
 import com.ntc.roec_scanner.grading.compareWithAnswerKey
 import com.ntc.roec_scanner.modules.CameraAnalyzer
 import com.ntc.roec_scanner.modules.DetectedAnswer
 import com.ntc.roec_scanner.modules.QRCodeData
 import com.ntc.roec_scanner.modules.ValidationFailReason
 import com.ntc.roec_scanner.modules.analyzeImageFile
-import com.ntc.roec_scanner.utils.showFullscreenImage
 import com.ntc.roec_scanner.utils.showManualAbsenteeDialog
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.invoke
@@ -396,93 +394,187 @@ class CameraScanActivity : AppCompatActivity() {
         corners: List<org.opencv.core.Point>?
     ) {
         lifecycleScope.launch {
-
             val setNumber = qrData?.setNumber ?: 1
             val seatNumber = qrData?.seatNumber ?: 1
             val examCode = qrData?.testType ?: "UNKNOWN"
 
-            // UPDATE THE VARIABLES HERE
             lastScannedExamCode = examCode
             lastScannedSetNumber = setNumber
 
-            // ← pass examCode here now
-            val scores = compareWithAnswerKey(detectedAnswers, answerKeyDao, examCode, setNumber)
+            // Grade standard bubble elements first
+            val standardScores = compareWithAnswerKey(detectedAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
 
+            // Check if we need to pause and ask for the Code score
+            if (examCode == "TYPEA-080910COD" || examCode == "MORSE-CODE") {
+                showManualCodeEntryDialog(examCode, seatNumber) { codeScore, completeRow ->
+                    // Add the manual code score to the map as Element 99
+                    standardScores[99] = codeScore
+
+                    saveAndDisplayResults(
+                        examCode, setNumber, seatNumber, standardScores, completeRow,
+                        detectedAnswers, qrData, cleanBitmap, correctAnswersMap, originalBitmap, corners
+                    )
+                }
+            } else {
+                // Normal exam, proceed directly
+                saveAndDisplayResults(
+                    examCode, setNumber, seatNumber, standardScores, "",
+                    detectedAnswers, qrData, cleanBitmap, correctAnswersMap, originalBitmap, corners
+                )
+            }
+        }
+    }
+
+    private fun showManualCodeEntryDialog(
+        examCode: String,
+        seatNumber: Int,
+        onSaved: (codeScore: Int, completeRow: String) -> Unit
+    ) {
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(64, 48, 64, 48)
+        }
+
+        val etCodeScore = com.google.android.material.textfield.TextInputEditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            hint = "Enter Code Score (0-25)"
+            filters = arrayOf(android.text.InputFilter.LengthFilter(2))
+        }
+
+        val inputLayout = com.google.android.material.textfield.TextInputLayout(this).apply {
+            addView(etCodeScore)
+            setPadding(0, 0, 0, 32)
+        }
+
+        val cbCompleteRow = android.widget.CheckBox(this).apply {
+            text = "Complete Row?"
+            textSize = 16f
+        }
+
+        layout.addView(inputLayout)
+        layout.addView(cbCompleteRow)
+
+        val title = if (examCode == "MORSE-CODE") "Morse Code Entry" else "Code Element Entry"
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage("Please enter the manually graded score for the Code section (Seat $seatNumber).")
+            .setView(layout)
+            .setCancelable(false)
+            .setPositiveButton("Proceed", null) // Handled below to prevent auto-close on error
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val scoreText = etCodeScore.text.toString()
+                if (scoreText.isEmpty()) {
+                    inputLayout.error = "Score is required"
+                    return@setOnClickListener
+                }
+                val score = scoreText.toInt()
+                if (score > 25) {
+                    inputLayout.error = "Max score is 25"
+                    return@setOnClickListener
+                }
+
+                val completeRow = if (cbCompleteRow.isChecked) "Yes" else "No"
+                dialog.dismiss()
+                onSaved(score, completeRow)
+            }
+        }
+        dialog.show()
+    }
+
+    // 3. THE SAVER & DISPLAYER
+    private fun saveAndDisplayResults(
+        examCode: String,
+        setNumber: Int,
+        seatNumber: Int,
+        finalScores: MutableMap<Int, Int>,
+        completeRow: String,
+        detectedAnswers: List<DetectedAnswer>,
+        qrData: QRCodeData?,
+        cleanBitmap: android.graphics.Bitmap?,
+        correctAnswersMap: Map<Int, String>,
+        originalBitmap: android.graphics.Bitmap?,
+        corners: List<org.opencv.core.Point>?
+    ) {
+        lifecycleScope.launch {
             try {
                 val db = AppDatabase.getDatabase(this@CameraScanActivity)
-                val totalScore = scores.values.sum()
+                val totalScore = finalScores.values.sum()
 
+                // Save to ExamResultsEntity (Includes CompleteRow)
                 val examResult = ExamResultsEntity(
-                    examCode = examCode,      // ← use examCode field (from entity refactor)
+                    examCode = examCode,
                     setNumber = setNumber,
                     seatNumber = seatNumber,
-                    totalScore = totalScore
+                    totalScore = totalScore,
+                    completeRow = completeRow
                 )
                 val examResultId = db.answerKeyDao().insertExamResult(examResult)
 
-                val elementScores = scores.map { (testNumber, score) ->
+                val elementScores = finalScores.map { (testNumber, score) ->
                     ElementScoreEntity(
                         examResultId = examResultId,
-                        elementNumber = testNumber,
+                        elementNumber = testNumber, // 99 maps to code naturally
                         score = score,
                         maxScore = 25
                     )
                 }
                 db.answerKeyDao().upsertElementScores(elementScores)
 
-                val columns = ExamConfigurations.getColumnsForTestType(examCode)
-                val testNumbers = ExamConfigurations.getTestNumbersForTestType(examCode)
+                // TEXT GENERATOR FUNCTION
+                fun generateResultText(scores: Map<Int, Int>): String {
+                    return buildString {
+                        append("FINAL SCORES\n")
+                        append("Exam: $examCode\n")
+                        append("Seat: $seatNumber  |  Set: $setNumber\n")
+                        append("----------------\n")
 
-                val resultText = buildString {
-                    append("FINAL SCORES\n")
-                    append("Exam: $examCode\n")
-                    append("Seat: $seatNumber  |  Set: $setNumber\n")
-                    append("----------------\n")
+                        var hasFailingElement = false
+                        var standardElementCount = 0
+                        var standardElementTotalScore = 0
 
-                    var hasFailingElement = false
+                        scores.toSortedMap().forEach { (testNumber, score) ->
+                            val percent = score * 4
+                            if (score < 13) hasFailingElement = true
 
-                    scores.toSortedMap().forEach { (testNumber, score) ->
-                        val elementName = columns.getOrNull(
-                            testNumbers.indexOf(testNumber)
-                        )?.name ?: "Elem $testNumber"
+                            if (testNumber == 99) {
+                                append("Code Score: $score / 25 ($percent%)\n")
+                            } else {
+                                standardElementCount++
+                                standardElementTotalScore += score
+                                append("Elem $testNumber: $score / 25 ($percent%)\n")
+                            }
+                        }
+                        append("----------------\n")
+                        append("Total: ${scores.values.sum()} / ${scores.size * 25}\n")
 
-                        // 1. Percentage equivalent (score * 4 since max is 25)
-                        val percent = score * 4
-
-                        if (score < 13) {
-                            hasFailingElement = true
+                        if (completeRow.isNotEmpty()) {
+                            append("Complete Row: $completeRow\n")
                         }
 
-                        append("$elementName: $score / 25 ($percent%)\n")
+                        // Average only standard elements (unless it's purely MORSE-CODE)
+                        val averagePercent = if (standardElementCount > 0) {
+                            (standardElementTotalScore.toDouble() * 4) / standardElementCount
+                        } else if (examCode == "MORSE-CODE") {
+                            (scores[99] ?: 0) * 4.0
+                        } else 0.0
+
+                        val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
+                        append("Average: $formattedAverage%\n")
+
+                        val isFailed = averagePercent < 72.0 || hasFailingElement
+                        val remarks = if (isFailed) {
+                            if (examCode == "TYPEC-020304" || examCode == "TYPEC-0304") {
+                                "Downgraded to Element D"
+                            } else "Failed"
+                        } else "Passed"
+
+                        append("Remarks: $remarks")
                     }
-                    append("----------------\n")
-                    append("Total: $totalScore / ${scores.size * 25}\n")
-
-                    // 2. Average Score %
-                    // (Sum of all scores * 4) / number of elements
-                    val averagePercent = if (scores.isNotEmpty()) {
-                        (totalScore.toDouble() * 4) / scores.size
-                    } else 0.0
-
-                    // Format to 2 decimal places
-                    val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
-                    append("Average: $formattedAverage%\n")
-
-                    // 3. Remarks Result
-                    val isFailed = averagePercent < 72.0 || hasFailingElement
-                    val remarks = if (isFailed) {
-                        if (examCode == "TYPEC-020304" || examCode == "TYPEC-0304") {
-                            "Downgraded to Element D"
-                        } else {
-                            "Failed"
-                        }
-                    } else {
-                        "Passed"
-                    }
-                    append("Remarks: $remarks")
                 }
-
-                delay(500)
 
                 val scrollView = android.widget.ScrollView(this@CameraScanActivity)
                 val layout = android.widget.LinearLayout(this@CameraScanActivity).apply {
@@ -490,21 +582,18 @@ class CameraScanActivity : AppCompatActivity() {
                     setPadding(48, 24, 48, 24)
                 }
 
-                // 1. CREATE TV MESSAGE ONCE
                 val tvMessage = android.widget.TextView(this@CameraScanActivity).apply {
-                    text = resultText
+                    text = generateResultText(finalScores)
                     textSize = 14f
                     setTextColor(Color.BLACK)
                 }
 
-                if (cleanBitmap != null) {
-                    var stateCorrect = true
-                    var stateIncorrect = true
-                    var stateSupposed = false
-                    var stateDouble = true
+                // If it's not purely a Morse Code exam, show the image and override options
+                if (cleanBitmap != null && examCode != "MORSE-CODE") {
 
-                    var currentCleanBitmap = cleanBitmap
+                    // Keep track of the current states so both Warp and Override updates apply cumulatively
                     var currentAnswers = detectedAnswers
+                    var currentCleanBitmap = cleanBitmap
                     var currentCorners = corners
 
                     val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
@@ -515,145 +604,64 @@ class CameraScanActivity : AppCompatActivity() {
                     fun refreshDialogImage() {
                         val bmp = com.ntc.roec_scanner.modules.drawDebugOverlays(
                             currentCleanBitmap!!, qrData, currentAnswers, correctAnswersMap,
-                            stateCorrect, stateIncorrect, stateSupposed, stateDouble
+                            true, true, false, true
                         )
                         imageView.setImageBitmap(bmp)
                     }
                     refreshDialogImage()
 
+                    // ==========================================
+                    // RESTORED: FULLSCREEN & WARP FIX LOGIC
+                    // ==========================================
                     imageView.setOnClickListener {
-                        showFullscreenImage(
+                        com.ntc.roec_scanner.utils.showFullscreenImage(
                             this@CameraScanActivity,
-                            currentCleanBitmap!!, qrData, currentAnswers, correctAnswersMap,
-                            stateCorrect, stateIncorrect, stateSupposed, stateDouble,
+                            currentCleanBitmap, qrData, currentAnswers, correctAnswersMap,
+                            true, true, false, true,
                             originalBitmap, currentCorners,
                             onWarpSaved = { newCorners ->
-                                android.widget.Toast.makeText(
-                                    this@CameraScanActivity,
-                                    "Re-scanning...",
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).show()
+                                android.widget.Toast.makeText(this@CameraScanActivity, "Re-scanning...", android.widget.Toast.LENGTH_SHORT).show()
 
-                                // Use lifecycleScope to safely run background DB and OMR tasks
                                 lifecycleScope.launch {
-
-                                    // 1. Run the heavy Image Processing on a background thread
-                                    val updatedResult =
-                                        kotlinx.coroutines.Dispatchers.Default.invoke {
-                                            com.ntc.roec_scanner.modules.reprocessWithNewCorners(
-                                                this@CameraScanActivity,
-                                                originalBitmap!!,
-                                                newCorners,
-                                                qrData,
-                                                correctAnswersMap
-                                            )
-                                        }
+                                    val updatedResult = kotlinx.coroutines.Dispatchers.Default.invoke {
+                                        com.ntc.roec_scanner.modules.reprocessWithNewCorners(
+                                            this@CameraScanActivity, originalBitmap!!, newCorners, qrData, correctAnswersMap
+                                        )
+                                    }
 
                                     if (updatedResult.debugBitmap != null) {
                                         currentCleanBitmap = updatedResult.debugBitmap
                                         currentAnswers = updatedResult.answers
                                         currentCorners = newCorners
-
-                                        // Update the tiny visual popup
                                         refreshDialogImage()
 
-                                        // 2. RECALCULATE PROPER SCORES USING YOUR ACTUAL GRADING LOGIC
-                                        val newScores = compareWithAnswerKey(
-                                            currentAnswers,
-                                            answerKeyDao,
-                                            examCode,
-                                            setNumber
-                                        )
-                                        val newTotalScore = newScores.values.sum()
+                                        val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
+                                        if (finalScores.containsKey(99)) newScores[99] = finalScores[99]!! // Preserve manual code
 
-                                        // 3. SAVE THE NEW SCORES TO THE DATABASE!
                                         try {
-                                            val db =
-                                                AppDatabase.getDatabase(this@CameraScanActivity)
-                                            val examResult = ExamResultsEntity(
-                                                examCode = examCode,
-                                                setNumber = setNumber,
-                                                seatNumber = seatNumber,
-                                                totalScore = newTotalScore
+                                            val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
+                                            val newResult = ExamResultsEntity(
+                                                examCode = examCode, setNumber = setNumber, seatNumber = seatNumber,
+                                                totalScore = newScores.values.sum(), completeRow = completeRow
                                             )
-                                            // This will overwrite/upsert the student's score with the manually fixed one
-                                            val examResultId =
-                                                db.answerKeyDao().insertExamResult(examResult)
-
-                                            val elementScores =
-                                                newScores.map { (testNumber, score) ->
-                                                    ElementScoreEntity(
-                                                        examResultId = examResultId,
-                                                        elementNumber = testNumber,
-                                                        score = score,
-                                                        maxScore = 25
-                                                    )
-                                                }
-                                            db.answerKeyDao().upsertElementScores(elementScores)
-                                        } catch (e: Exception) {
-                                            Log.e("OMR", "Failed to update DB after warp fix", e)
-                                        }
-
-                                        // 4. REBUILD THE DETAILED TEXT UI
-                                        val columns =
-                                            ExamConfigurations.getColumnsForTestType(examCode)
-                                        val testNumbers =
-                                            ExamConfigurations.getTestNumbersForTestType(examCode)
-
-                                        val newResultText = buildString {
-                                            append("FINAL SCORES (MANUAL FIX)\n")
-                                            append("Exam: $examCode\n")
-                                            append("Seat: $seatNumber  |  Set: $setNumber\n")
-                                            append("----------------\n")
-
-                                            var hasFailingElement = false
-
-                                            newScores.toSortedMap().forEach { (testNumber, score) ->
-                                                val elementName = columns.getOrNull(
-                                                    testNumbers.indexOf(testNumber)
-                                                )?.name ?: "Elem $testNumber"
-
-                                                val percent = score * 4
-                                                if (score < 13) hasFailingElement = true
-
-                                                append("$elementName: $score / 25 ($percent%)\n")
+                                            val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+                                            val newElementScores = newScores.map { (testNumber, score) ->
+                                                ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
                                             }
-                                            append("----------------\n")
-                                            append("Total: $newTotalScore / ${newScores.size * 25}\n")
+                                            dbOverride.answerKeyDao().upsertElementScores(newElementScores)
+                                        } catch (e: Exception) { Log.e("OMR", "Failed to update DB after warp fix", e) }
 
-                                            val averagePercent = if (newScores.isNotEmpty()) {
-                                                (newTotalScore.toDouble() * 4) / newScores.size
-                                            } else 0.0
-
-                                            val formattedAverage =
-                                                String.format(Locale.US, "%.2f", averagePercent)
-                                            append("Average: $formattedAverage%\n")
-
-                                            val isFailed =
-                                                averagePercent < 72.0 || hasFailingElement
-                                            val remarks = if (isFailed) {
-                                                if (examCode == "TYPEC-020304" || examCode == "TYPEC-0304") {
-                                                    "Downgraded to Element D"
-                                                } else "Failed"
-                                            } else "Passed"
-
-                                            append("Remarks: $remarks")
-                                        }
-
-                                        // Update the text box on the screen
-                                        tvMessage.text = newResultText
-                                        android.widget.Toast.makeText(
-                                            this@CameraScanActivity,
-                                            "Warp Fixed & Saved to DB!",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
+                                        tvMessage.text = generateResultText(newScores)
+                                        android.widget.Toast.makeText(this@CameraScanActivity, "Warp Fixed & Saved to DB!", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
                         )
                     }
 
-                    // --- NEW MANUAL OVERRIDE BUTTON ---
+                    // ==========================================
+                    // MANUAL OVERRIDE BUBBLES LOGIC
+                    // ==========================================
                     val btnManualOverride = MaterialButton(this@CameraScanActivity).apply {
                         text = "Manual Override"
                         cornerRadius = 16
@@ -665,98 +673,41 @@ class CameraScanActivity : AppCompatActivity() {
 
                     btnManualOverride.setOnClickListener {
                         com.ntc.roec_scanner.utils.showManualOverrideDialog(
-                            this@CameraScanActivity,
-                            currentAnswers
+                            this@CameraScanActivity, currentAnswers
                         ) { updatedAnswers ->
                             android.widget.Toast.makeText(this@CameraScanActivity, "Applying overrides...", android.widget.Toast.LENGTH_SHORT).show()
 
                             lifecycleScope.launch {
                                 currentAnswers = updatedAnswers
-
-                                // 1. Update the tiny visual popup with new markers
                                 refreshDialogImage()
 
-                                // 2. Recalculate scores using the overridden answers
-                                val newScores = compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber)
-                                val newTotalScore = newScores.values.sum()
+                                val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
+                                if (finalScores.containsKey(99)) newScores[99] = finalScores[99]!! // Preserve manual code
 
-                                // 3. Save the overridden scores to the DB
                                 try {
-                                    val db = AppDatabase.getDatabase(this@CameraScanActivity)
-                                    val examResult = ExamResultsEntity(
-                                        examCode = examCode,
-                                        setNumber = setNumber,
-                                        seatNumber = seatNumber,
-                                        totalScore = newTotalScore
+                                    val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
+                                    val newResult = ExamResultsEntity(
+                                        examCode = examCode, setNumber = setNumber, seatNumber = seatNumber,
+                                        totalScore = newScores.values.sum(), completeRow = completeRow
                                     )
-                                    val examResultId = db.answerKeyDao().insertExamResult(examResult)
-
-                                    val elementScores = newScores.map { (testNumber, score) ->
-                                        ElementScoreEntity(
-                                            examResultId = examResultId,
-                                            elementNumber = testNumber,
-                                            score = score,
-                                            maxScore = 25
-                                        )
+                                    val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+                                    val newElementScores = newScores.map { (testNumber, score) ->
+                                        ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
                                     }
-                                    db.answerKeyDao().upsertElementScores(elementScores)
-                                } catch (e: Exception) {
-                                    Log.e("OMR", "Failed to update DB after manual override", e)
-                                }
+                                    dbOverride.answerKeyDao().upsertElementScores(newElementScores)
+                                } catch (e: Exception) { Log.e("OMR", "Failed to update DB after override", e) }
 
-                                // 4. Rebuild the text display
-                                val newResultText = buildString {
-                                    append("FINAL SCORES (MANUAL OVERRIDE)\n")
-                                    append("Exam: $examCode\n")
-                                    append("Seat: $seatNumber  |  Set: $setNumber\n")
-                                    append("----------------\n")
-
-                                    var hasFailingElement = false
-
-                                    newScores.toSortedMap().forEach { (testNumber, score) ->
-                                        val elementName = columns.getOrNull(
-                                            testNumbers.indexOf(testNumber)
-                                        )?.name ?: "Elem $testNumber"
-
-                                        val percent = score * 4
-                                        if (score < 13) hasFailingElement = true
-
-                                        append("$elementName: $score / 25 ($percent%)\n")
-                                    }
-                                    append("----------------\n")
-                                    append("Total: $newTotalScore / ${newScores.size * 25}\n")
-
-                                    val averagePercent = if (newScores.isNotEmpty()) {
-                                        (newTotalScore.toDouble() * 4) / newScores.size
-                                    } else 0.0
-
-                                    val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
-                                    append("Average: $formattedAverage%\n")
-
-                                    val isFailed = averagePercent < 72.0 || hasFailingElement
-                                    val remarks = if (isFailed) {
-                                        if (examCode == "TYPEC-020304" || examCode == "TYPEC-0304") {
-                                            "Downgraded to Element D"
-                                        } else "Failed"
-                                    } else "Passed"
-
-                                    append("Remarks: $remarks")
-                                }
-
-                                tvMessage.text = newResultText
+                                tvMessage.text = generateResultText(newScores)
                                 android.widget.Toast.makeText(this@CameraScanActivity, "Overrides Saved!", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
 
-                    // 2. ADD BUTTON & IMAGE TO LAYOUT TOP
                     layout.addView(btnManualOverride)
                     layout.addView(imageView)
                 }
 
-                // 3. ADD TEXT TO LAYOUT BOTTOM
                 layout.addView(tvMessage)
-
                 scrollView.addView(layout)
 
                 AlertDialog.Builder(this@CameraScanActivity)
