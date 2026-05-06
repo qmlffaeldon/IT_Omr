@@ -326,11 +326,38 @@ class CameraScanActivity : AppCompatActivity() {
                                     }
 
                                     ValidationFailReason.NO_QR -> {
+                                        // 1. Create a scrollable view container
+                                        val scrollView = android.widget.ScrollView(this@CameraScanActivity)
+                                        val layout = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                                            orientation = android.widget.LinearLayout.VERTICAL
+                                            setPadding(48, 24, 48, 24)
+                                        }
+
+                                        // 2. Add the explanation text
+                                        val tvMsg = android.widget.TextView(this@CameraScanActivity).apply {
+                                            text = "A valid QR code couldn't be found. Here is what the scanner saw:"
+                                            textSize = 14f
+                                            setTextColor(android.graphics.Color.BLACK)
+                                            setPadding(0, 0, 0, 32)
+                                        }
+                                        layout.addView(tvMsg)
+
+                                        // 3. Add the debug image if it exists
+                                        if (validation.debugBitmap != null) {
+                                            val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
+                                                adjustViewBounds = true
+                                                setImageBitmap(validation.debugBitmap)
+                                            }
+                                            layout.addView(imageView)
+                                        }
+
+                                        scrollView.addView(layout)
+
+                                        // 4. Show the updated Dialog
                                         AlertDialog.Builder(this@CameraScanActivity)
                                             .setTitle("QR Code Error")
-                                            .setMessage("A valid QR code couldn't be found on the paper. Please ensure the QR code is clearly visible and try again.")
+                                            .setView(scrollView) // Use the custom layout with the image
                                             .setPositiveButton("Broken/No QR") { _, _ ->
-                                                // Pass the savedUri so we can re-analyze it
                                                 showManualQrDialog(savedUri)
                                             }
                                             .setNegativeButton("Rescan", null)
@@ -1069,11 +1096,38 @@ class CameraScanActivity : AppCompatActivity() {
                                             }
 
                                             ValidationFailReason.NO_QR -> {
+                                                // 1. Create a scrollable view container
+                                                val scrollView = android.widget.ScrollView(this@CameraScanActivity)
+                                                val layout = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                                                    orientation = android.widget.LinearLayout.VERTICAL
+                                                    setPadding(48, 24, 48, 24)
+                                                }
+
+                                                // 2. Add the explanation text
+                                                val tvMsg = android.widget.TextView(this@CameraScanActivity).apply {
+                                                    text = "A valid QR code couldn't be found. Here is what the scanner saw:"
+                                                    textSize = 14f
+                                                    setTextColor(android.graphics.Color.BLACK)
+                                                    setPadding(0, 0, 0, 32)
+                                                }
+                                                layout.addView(tvMsg)
+
+                                                // 3. Add the debug image if it exists
+                                                if (validation.debugBitmap != null) {
+                                                    val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
+                                                        adjustViewBounds = true
+                                                        setImageBitmap(validation.debugBitmap)
+                                                    }
+                                                    layout.addView(imageView)
+                                                }
+
+                                                scrollView.addView(layout)
+
+                                                // 4. Show the updated Dialog
                                                 AlertDialog.Builder(this@CameraScanActivity)
                                                     .setTitle("QR Code Error")
-                                                    .setMessage("A valid QR code couldn't be found on the paper. Please ensure the QR code is clearly visible and try again.")
+                                                    .setView(scrollView) // Use the custom layout with the image
                                                     .setPositiveButton("Broken/No QR") { _, _ ->
-                                                        // Pass the savedUri so we can re-analyze it
                                                         showManualQrDialog(savedUri)
                                                     }
                                                     .setNegativeButton("Rescan", null)

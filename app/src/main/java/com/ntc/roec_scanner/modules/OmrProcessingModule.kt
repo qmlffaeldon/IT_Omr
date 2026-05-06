@@ -59,11 +59,15 @@ fun analyzeImageFile(
             rotated
         }
 
+        // 2. Bypass QR scanning if manualQrData is provided
         val qrData = if (manualQrData != null) {
             manualQrData
         } else {
             onProgress?.invoke("Scanning QR code...")
-            val qrRawData = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
+
+            // CATCH THE PAIR HERE
+            val (qrRawData, qrDebugBitmap) = detectQRCodeWithDetailedDebug(context, finalMat, "00_qr_detection")
+
             if (qrRawData == null) {
                 onValidationError?.invoke(
                     SheetValidationResult(
@@ -71,7 +75,8 @@ fun analyzeImageFile(
                         reason = "QR code could not be detected.",
                         failReason = ValidationFailReason.NO_QR,
                         filledBubbleCount = 0,
-                        totalBubbles = 0
+                        totalBubbles = 0,
+                        debugBitmap = qrDebugBitmap // PASS IT TO THE UI HERE
                     )
                 )
                 rotated.release()

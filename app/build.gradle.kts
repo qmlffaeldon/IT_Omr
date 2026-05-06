@@ -64,6 +64,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(libs.androidx.constraintlayout.core)
     implementation(libs.splashscreen)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

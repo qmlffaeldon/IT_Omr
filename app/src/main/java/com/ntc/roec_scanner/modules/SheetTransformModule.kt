@@ -1,5 +1,6 @@
 package com.ntc.roec_scanner.modules
 
+import android.graphics.Bitmap
 import android.util.Log
 import com.ntc.roec_scanner.grading.ExamConfigurations
 import org.opencv.core.Core
@@ -28,7 +29,8 @@ data class SheetValidationResult(
     val failReason: ValidationFailReason = ValidationFailReason.VALID,
     val filledBubbleCount: Int,
     val totalBubbles: Int,
-    val qrData: QRCodeData? = null   // ← carry it along for absent saving
+    val qrData: QRCodeData? = null ,
+    val debugBitmap: Bitmap? = null
 )
 /**
  * Validates if the answer sheet has sufficient filled bubbles to be processed

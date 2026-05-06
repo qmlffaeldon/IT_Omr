@@ -56,7 +56,7 @@ class CameraAnalyzer(
                 return
             }
 
-            val qrRawData = detectQRCodeWithDetailedDebug(context, src, "00_qr_detection")
+            val (qrRawData, qrDebugBitmap) = detectQRCodeWithDetailedDebug(context, src, "00_qr_detection")
             val qrData = parseQRCodeData(qrRawData)
 
             // 1. Convert the original frame into a Bitmap

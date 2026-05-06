@@ -1,11 +1,11 @@
 package com.ntc.roec_scanner.modules
+
 import android.content.Context
 import android.util.Log
-import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
-import org.opencv.objdetect.QRCodeDetector
+import androidx.core.graphics.createBitmap
 
 
 data class OMRResult(
@@ -17,6 +17,7 @@ data class OMRResult(
     val originalBitmap: android.graphics.Bitmap? = null,
     val corners: List<org.opencv.core.Point>? = null
 )
+
 data class QRCodeData(
     val testType: String,
     val setNumber: Int?,
@@ -26,6 +27,7 @@ data class QRCodeData(
     val placeOfExam: String? = null,
     val rawData: String? = null
 )
+
 data class DetectedAnswer(
     val testNumber: Int,
     val questionNumber: Int,
@@ -41,46 +43,73 @@ data class Column(
     val starty: Double,
     val height: Double
 )
+
 fun detectQRCodeWithDetailedDebug(
     context: Context,
     src: Mat,
     debugName: String = "qr_detection",
-    timeoutMs: Long = 5000L // 5 second timeout
-): String? {
+    timeoutMs: Long = 5000L
+): Pair<String?, android.graphics.Bitmap?> {
     val startTime = System.currentTimeMillis()
-    val detector = QRCodeDetector()
+    val detector = org.opencv.objdetect.QRCodeDetector()
+    var lastAttemptBitmap: android.graphics.Bitmap? = null
+
+    // Helper to snap a picture of the OpenCV Mat for debugging
+    fun saveToBitmap(mat: Mat) {
+        val bmp = createBitmap(mat.cols(), mat.rows())
+        org.opencv.android.Utils.matToBitmap(mat, bmp)
+        lastAttemptBitmap = bmp
+    }
 
     try {
-        val gray = Mat()
-        Imgproc.cvtColor(src, gray, Imgproc.COLOR_RGBA2GRAY)
+        // 1. CROP TO TOP-RIGHT QUADRANT
+        val width = src.cols()
+        val height = src.rows()
+        val roi = org.opencv.core.Rect(width / 2, 0, width / 2, height / 2)
+        val croppedSrc = Mat(src, roi)
 
-        val scalesToTry = listOf(1.0, 2.0, 3.0, 4.0)
+        val gray = Mat()
+        Imgproc.cvtColor(croppedSrc, gray, Imgproc.COLOR_RGBA2GRAY)
+
+        val scalesToTry = listOf(1.0, 0.5, 0.75, 1.25)
 
         for (scale in scalesToTry) {
-            // Check timeout before next scale
             if (System.currentTimeMillis() - startTime > timeoutMs) break
 
             val scaled = Mat()
             if (scale == 1.0) {
                 gray.copyTo(scaled)
             } else {
-                Imgproc.resize(gray, scaled, Size(), scale, scale, Imgproc.INTER_CUBIC)
+                Imgproc.resize(gray, scaled, Size(), scale, scale, Imgproc.INTER_NEAREST)
             }
 
-            val enhanced = Mat()
-            val clahe = Imgproc.createCLAHE(3.0, Size(8.0, 8.0))
-            clahe.apply(scaled, enhanced)
+            // Method 1: Otsu (Global - Fast, good for flat lighting)
+            val otsu = Mat()
+            Imgproc.threshold(scaled, otsu, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
 
-            val attempts = listOf(scaled to "gray_${scale}x", enhanced to "enhanced_${scale}x")
+            // Method 2: Adaptive (Local - Fixes shadows and rounding issues)
+            val adaptive = Mat()
+            // 51 is the block size (how wide it looks), 15.0 is the contrast weight
+            Imgproc.adaptiveThreshold(
+                scaled, adaptive, 255.0,
+                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                Imgproc.THRESH_BINARY, 31, 8.0
+            )
+
+            // Add the new adaptive Mat to our list of attempts!
+            val attempts = listOf(
+                scaled to "gray_${scale}x",
+                otsu to "otsu_${scale}x",
+                adaptive to "adaptive_${scale}x"
+            )
 
             for ((mat, label) in attempts) {
-                // Check timeout before deep scanning
+                saveToBitmap(mat)
+
                 if (System.currentTimeMillis() - startTime > timeoutMs) {
                     Log.e("OMR", "QR detection timed out after ${timeoutMs}ms")
-                    scaled.release()
-                    enhanced.release()
-                    gray.release()
-                    return null
+                    scaled.release(); otsu.release(); adaptive.release(); gray.release(); croppedSrc.release()
+                    return Pair(null, lastAttemptBitmap)
                 }
 
                 val points = Mat()
@@ -88,56 +117,28 @@ fun detectQRCodeWithDetailedDebug(
                 val data = try {
                     detector.detectAndDecode(mat, points, straight)
                 } catch (e: Exception) { "" } finally {
-                    points.release()
-                    straight.release()
+                    points.release(); straight.release()
                 }
 
                 if (data.isNotEmpty()) {
                     Log.d("OMR", "QR found at scale=${scale}x source=$label → $data")
-                    scaled.release()
-                    enhanced.release()
-                    gray.release()
-                    return data
+                    scaled.release(); otsu.release(); adaptive.release(); gray.release(); croppedSrc.release()
+                    return Pair(data, lastAttemptBitmap)
                 }
             }
             scaled.release()
-            enhanced.release()
+            otsu.release()
+            adaptive.release()
         }
 
-        // Check timeout before last resort sharpening
-        if (System.currentTimeMillis() - startTime <= timeoutMs) {
-            val sharpened = Mat()
-            val kernel = Mat(3, 3, CvType.CV_32F).apply {
-                put(0, 0, 0.0, -1.0, 0.0)
-                put(1, 0, -1.0, 5.0, -1.0)
-                put(2, 0, 0.0, -1.0, 0.0)
-            }
-            val scaled3x = Mat()
-            Imgproc.resize(gray, scaled3x, Size(), 3.0, 3.0, Imgproc.INTER_CUBIC)
-            Imgproc.filter2D(scaled3x, sharpened, -1, kernel)
-
-            val points = Mat()
-            val straight = Mat()
-            val data = try {
-                detector.detectAndDecode(sharpened, points, straight)
-            } catch (e: Exception) { "" } finally {
-                points.release()
-                straight.release()
-            }
-
-            gray.release()
-            sharpened.release()
-            scaled3x.release()
-
-            if (data.isNotEmpty()) return data
-        }
-
-        Log.e("OMR", "QR not found or timed out.")
-        return null
+        gray.release()
+        croppedSrc.release()
+        Log.e("OMR", "QR not found within time limit.")
+        return Pair(null, lastAttemptBitmap)
 
     } catch (e: Exception) {
         Log.e("OMR", "QR detection failed", e)
-        return null
+        return Pair(null, lastAttemptBitmap)
     }
 }
 
@@ -154,16 +155,21 @@ fun parseQRCodeData(rawData: String?): QRCodeData? {
         val map = when {
             rawData.contains(";") -> {
                 rawData.split(";").associate {
-                    val (k, v) = it.split(":", limit = 2) + listOf("") // + listOf("") prevents index out of bounds
+                    val (k, v) = it.split(
+                        ":",
+                        limit = 2
+                    ) + listOf("") // + listOf("") prevents index out of bounds
                     k.trim() to v.trim()
                 }
             }
+
             rawData.contains(",") -> {
                 rawData.split(",").associate {
                     val (k, v) = it.split(":", limit = 2) + listOf("")
                     k.trim() to v.trim()
                 }
             }
+
             else -> emptyMap()
         }
 
