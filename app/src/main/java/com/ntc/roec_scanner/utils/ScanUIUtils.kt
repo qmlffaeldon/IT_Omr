@@ -6,7 +6,6 @@ import android.app.Dialog
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
@@ -78,10 +77,10 @@ fun showFullscreenImage(
     val baseMatrix = Matrix()
     val currentMatrix = Matrix()
 
-    val warpOverlay = object : android.view.View(context) {
-        val paintLine = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; strokeWidth = 8f; style = android.graphics.Paint.Style.STROKE }
-        val paintCircle = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; strokeWidth = 6f; style = android.graphics.Paint.Style.STROKE }
-        val paintFill = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#44FFFF00"); style = android.graphics.Paint.Style.FILL }
+    val warpOverlay = object : View(context) {
+        val paintLine = Paint().apply { color = Color.YELLOW; strokeWidth = 8f; style = Paint.Style.STROKE }
+        val paintCircle = Paint().apply { color = Color.YELLOW; strokeWidth = 6f; style = Paint.Style.STROKE }
+        val paintFill = Paint().apply { color = "#44FFFF00".toColorInt(); style = Paint.Style.FILL }
         var activePointIndex = -1
         val touchRadius = 120f
 
@@ -89,9 +88,9 @@ fun showFullscreenImage(
         private val srcRect = android.graphics.Rect()
         private val dstRect = android.graphics.RectF()
         private val matrixValues = FloatArray(9)
-        private val paintMagBackground = android.graphics.Paint().apply { color = android.graphics.Color.BLACK; style = android.graphics.Paint.Style.FILL }
-        private val paintMagBorder = android.graphics.Paint().apply { color = android.graphics.Color.YELLOW; strokeWidth = 6f; style = android.graphics.Paint.Style.STROKE }
-        private val paintMagCrosshair = android.graphics.Paint().apply { color = android.graphics.Color.parseColor("#88FFFF00"); strokeWidth = 3f; style = android.graphics.Paint.Style.STROKE }
+        private val paintMagBackground = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL }
+        private val paintMagBorder = Paint().apply { color = Color.YELLOW; strokeWidth = 6f; style = Paint.Style.STROKE }
+        private val paintMagCrosshair = Paint().apply { color = "#88FFFF00".toColorInt(); strokeWidth = 3f; style = Paint.Style.STROKE }
 
         override fun onDraw(canvas: android.graphics.Canvas) {
             super.onDraw(canvas)
@@ -111,8 +110,8 @@ fun showFullscreenImage(
 
             for (i in 0 until 4) {
                 canvas.drawCircle(mapped[i * 2], mapped[i * 2 + 1], 40f, paintCircle)
-                canvas.drawCircle(mapped[i * 2], mapped[i * 2 + 1], 10f, paintLine.apply { style = android.graphics.Paint.Style.FILL })
-                paintLine.style = android.graphics.Paint.Style.STROKE
+                canvas.drawCircle(mapped[i * 2], mapped[i * 2 + 1], 10f, paintLine.apply { style = Paint.Style.FILL })
+                paintLine.style = Paint.Style.STROKE
             }
 
             // ==========================================
@@ -122,7 +121,7 @@ fun showFullscreenImage(
             if (activePointIndex != -1 && bmp != null) {
                 // 1. Calculate zoom based on current screen scale
                 currentMatrix.getValues(matrixValues)
-                val currentScale = matrixValues[android.graphics.Matrix.MSCALE_X]
+                val currentScale = matrixValues[Matrix.MSCALE_X]
                 val targetScale = currentScale * 2f // Make it 2x bigger than whatever the screen is showing
 
                 // 2. Define the size of the square box on the screen (e.g., 300px)
@@ -421,6 +420,186 @@ fun showFullscreenImage(
             onWarpSaved(newCorners)
             dialog.dismiss()
         }
+    }
+
+    dialog.setContentView(rootLayout)
+    dialog.show()
+}
+
+fun showManualOverrideDialog(
+    context: Context,
+    currentAnswers: List<DetectedAnswer>,
+    onSaved: (List<DetectedAnswer>) -> Unit
+) {
+    val dialog = Dialog(context, android.R.style.Theme_Light_NoTitleBar_Fullscreen)
+    val rootLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundColor(Color.WHITE)
+    }
+
+    // --- TOP BAR ---
+    val topBar = RelativeLayout(context).apply {
+        setPadding(32, 48, 32, 32)
+        setBackgroundColor("#F5F5F5".toColorInt())
+    }
+
+    val btnBack = MaterialButton(context).apply {
+        text = context.getString(R.string.button_text_back)
+        cornerRadius = 16
+        setOnClickListener { dialog.dismiss() }
+    }
+
+    topBar.addView(btnBack, RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
+        addRule(RelativeLayout.ALIGN_PARENT_START)
+        addRule(RelativeLayout.CENTER_VERTICAL)
+    })
+
+    val title = android.widget.TextView(context).apply {
+        text = "Manual Override"
+        textSize = 18f
+        setTypeface(null, android.graphics.Typeface.BOLD)
+        setTextColor(Color.BLACK)
+        gravity = android.view.Gravity.CENTER
+    }
+    topBar.addView(title, RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
+        addRule(RelativeLayout.CENTER_IN_PARENT)
+    })
+
+    val btnSave = MaterialButton(context).apply {
+        text = "Save Changes"
+        cornerRadius = 16
+    }
+    topBar.addView(btnSave, RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
+        addRule(RelativeLayout.ALIGN_PARENT_END)
+        addRule(RelativeLayout.CENTER_VERTICAL)
+    })
+
+    rootLayout.addView(topBar)
+
+    // --- CONTENT ---
+    val scrollView = android.widget.ScrollView(context).apply {
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+    }
+    val contentLayout = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(32, 32, 32, 32)
+    }
+    scrollView.addView(contentLayout)
+    rootLayout.addView(scrollView)
+
+    // --- DATA MAPPING ---
+    // Extract a mutable working copy of the shaded bubbles mapped by TestNumber_QuestionNumber
+    val workingMap = currentAnswers.associate {
+        "${it.testNumber}_${it.questionNumber}" to it.shadedBubbles.toMutableList()
+    }
+
+    val grouped = currentAnswers.groupBy { it.testNumber }.toSortedMap()
+
+    for ((testNumber, answers) in grouped) {
+        // Element Collapsible Header
+        val elementHeader = android.widget.TextView(context).apply {
+            text = "Element $testNumber \u25BC"
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(32, 32, 32, 32)
+            setTextColor(Color.BLACK)
+            setBackgroundColor("#E0E0E0".toColorInt())
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 16, 0, 0)
+            }
+        }
+        contentLayout.addView(elementHeader)
+
+        val rowsContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 16, 0, 32)
+        }
+
+        var isExpanded = true
+        elementHeader.setOnClickListener {
+            isExpanded = !isExpanded
+            rowsContainer.visibility = if (isExpanded) View.VISIBLE else View.GONE
+            elementHeader.text = "Element $testNumber ${if (isExpanded) "\u25BC" else "\u25B2"}"
+        }
+
+        // Table Header Row (Q#, A, B, C, D)
+        val headerRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 5f
+            setPadding(0, 16, 0, 16)
+        }
+        val headers = listOf("Q#", "A", "B", "C", "D")
+        headers.forEach { hText ->
+            headerRow.addView(android.widget.TextView(context).apply {
+                text = hText
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                gravity = android.view.Gravity.CENTER
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(Color.DKGRAY)
+            })
+        }
+        rowsContainer.addView(headerRow)
+
+        // Generate Rows
+        for (answer in answers.sortedBy { it.questionNumber }) {
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                weightSum = 5f
+                setPadding(0, 8, 0, 8)
+            }
+
+            // Question Number Column
+            row.addView(android.widget.TextView(context).apply {
+                text = answer.questionNumber.toString()
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                gravity = android.view.Gravity.CENTER
+                setTextColor(Color.BLACK)
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            })
+
+            // 4 Checkboxes (A, B, C, D)
+            val key = "${answer.testNumber}_${answer.questionNumber}"
+            for (choice in 1..4) {
+                val cbContainer = LinearLayout(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    gravity = android.view.Gravity.CENTER
+                }
+                val cb = android.widget.CheckBox(context).apply {
+                    isChecked = workingMap[key]?.contains(choice) == true
+                    setOnCheckedChangeListener { _, checked ->
+                        val shaded = workingMap[key]!!
+                        if (checked && !shaded.contains(choice)) {
+                            shaded.add(choice)
+                        } else if (!checked && shaded.contains(choice)) {
+                            shaded.remove(choice)
+                        }
+                    }
+                }
+                cbContainer.addView(cb)
+                row.addView(cbContainer)
+            }
+            rowsContainer.addView(row)
+        }
+        contentLayout.addView(rowsContainer)
+    }
+
+    // --- SAVE LOGIC ---
+    btnSave.setOnClickListener {
+        val updatedAnswers = currentAnswers.map { old ->
+            val key = "${old.testNumber}_${old.questionNumber}"
+            val newShaded = workingMap[key]!!.distinct().sorted()
+
+            // Re-evaluate what this means for grading
+            val newDetected = when (newShaded.size) {
+                0 -> -1 // Blank
+                1 -> newShaded.first() // Single Answer
+                else -> -8 // Double / Multiple Answer
+            }
+
+            old.copy(shadedBubbles = newShaded, detected = newDetected)
+        }
+        onSaved(updatedAnswers)
+        dialog.dismiss()
     }
 
     dialog.setContentView(rootLayout)

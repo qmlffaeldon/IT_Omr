@@ -626,7 +626,104 @@ class CameraScanActivity : AppCompatActivity() {
                         )
                     }
 
-                    // 2. ADD IMAGE TO LAYOUT TOP
+                    // --- NEW MANUAL OVERRIDE BUTTON ---
+                    val btnManualOverride = MaterialButton(this@CameraScanActivity).apply {
+                        text = "Manual Override"
+                        cornerRadius = 16
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { setMargins(0, 0, 0, 32) }
+                    }
+
+                    btnManualOverride.setOnClickListener {
+                        com.ntc.roec_scanner.utils.showManualOverrideDialog(
+                            this@CameraScanActivity,
+                            currentAnswers
+                        ) { updatedAnswers ->
+                            android.widget.Toast.makeText(this@CameraScanActivity, "Applying overrides...", android.widget.Toast.LENGTH_SHORT).show()
+
+                            lifecycleScope.launch {
+                                currentAnswers = updatedAnswers
+
+                                // 1. Update the tiny visual popup with new markers
+                                refreshDialogImage()
+
+                                // 2. Recalculate scores using the overridden answers
+                                val newScores = compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber)
+                                val newTotalScore = newScores.values.sum()
+
+                                // 3. Save the overridden scores to the DB
+                                try {
+                                    val db = AppDatabase.getDatabase(this@CameraScanActivity)
+                                    val examResult = ExamResultsEntity(
+                                        examCode = examCode,
+                                        setNumber = setNumber,
+                                        seatNumber = seatNumber,
+                                        totalScore = newTotalScore
+                                    )
+                                    val examResultId = db.answerKeyDao().insertExamResult(examResult)
+
+                                    val elementScores = newScores.map { (testNumber, score) ->
+                                        ElementScoreEntity(
+                                            examResultId = examResultId,
+                                            elementNumber = testNumber,
+                                            score = score,
+                                            maxScore = 25
+                                        )
+                                    }
+                                    db.answerKeyDao().upsertElementScores(elementScores)
+                                } catch (e: Exception) {
+                                    Log.e("OMR", "Failed to update DB after manual override", e)
+                                }
+
+                                // 4. Rebuild the text display
+                                val newResultText = buildString {
+                                    append("FINAL SCORES (MANUAL OVERRIDE)\n")
+                                    append("Exam: $examCode\n")
+                                    append("Seat: $seatNumber  |  Set: $setNumber\n")
+                                    append("----------------\n")
+
+                                    var hasFailingElement = false
+
+                                    newScores.toSortedMap().forEach { (testNumber, score) ->
+                                        val elementName = columns.getOrNull(
+                                            testNumbers.indexOf(testNumber)
+                                        )?.name ?: "Elem $testNumber"
+
+                                        val percent = score * 4
+                                        if (score < 13) hasFailingElement = true
+
+                                        append("$elementName: $score / 25 ($percent%)\n")
+                                    }
+                                    append("----------------\n")
+                                    append("Total: $newTotalScore / ${newScores.size * 25}\n")
+
+                                    val averagePercent = if (newScores.isNotEmpty()) {
+                                        (newTotalScore.toDouble() * 4) / newScores.size
+                                    } else 0.0
+
+                                    val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
+                                    append("Average: $formattedAverage%\n")
+
+                                    val isFailed = averagePercent < 72.0 || hasFailingElement
+                                    val remarks = if (isFailed) {
+                                        if (examCode == "TYPEC-020304" || examCode == "TYPEC-0304") {
+                                            "Downgraded to Element D"
+                                        } else "Failed"
+                                    } else "Passed"
+
+                                    append("Remarks: $remarks")
+                                }
+
+                                tvMessage.text = newResultText
+                                android.widget.Toast.makeText(this@CameraScanActivity, "Overrides Saved!", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+
+                    // 2. ADD BUTTON & IMAGE TO LAYOUT TOP
+                    layout.addView(btnManualOverride)
                     layout.addView(imageView)
                 }
 
