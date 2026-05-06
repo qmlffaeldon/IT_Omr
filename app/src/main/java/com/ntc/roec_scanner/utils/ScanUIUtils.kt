@@ -48,7 +48,8 @@ fun showFullscreenImage(
     initialDouble: Boolean,
     originalBitmap: Bitmap?,
     initialCorners: List<Point>?,
-    onWarpSaved: (List<Point>) -> Unit
+    onWarpSaved: (List<Point>) -> Unit,
+    onManualOverrideSaved: (List<DetectedAnswer>) -> Unit // <--- NEW CALLBACK
 ) {
     val dialog = Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
     val rootLayout = RelativeLayout(context).apply {
@@ -70,6 +71,8 @@ fun showFullscreenImage(
     var showDouble = initialDouble
     var isWarpMode = false
     var currentDisplayBitmap: Bitmap? = null
+    var currentAnswersLocally = detectedAnswers // <--- TRACK ANSWERS LOCALLY
+
     val cornerPoints = initialCorners?.map { PointF(it.x.toFloat(), it.y.toFloat()) }?.toMutableList() ?: mutableListOf()
 
     var scaleFactor = 1f
@@ -84,7 +87,6 @@ fun showFullscreenImage(
         var activePointIndex = -1
         val touchRadius = 120f
 
-        // Magnifier pre-allocations
         private val srcRect = android.graphics.Rect()
         private val dstRect = android.graphics.RectF()
         private val matrixValues = FloatArray(9)
@@ -100,7 +102,6 @@ fun showFullscreenImage(
             currentMatrix.mapPoints(mapped)
 
             val path = Path()
-            // Draw the main warp box
             path.reset()
             path.moveTo(mapped[0], mapped[1]); path.lineTo(mapped[2], mapped[3])
             path.lineTo(mapped[4], mapped[5]); path.lineTo(mapped[6], mapped[7]); path.close()
@@ -114,48 +115,37 @@ fun showFullscreenImage(
                 paintLine.style = Paint.Style.STROKE
             }
 
-            // ==========================================
-            // THE MAGNIFIER LOGIC
-            // ==========================================
             val bmp = currentDisplayBitmap
             if (activePointIndex != -1 && bmp != null) {
-                // 1. Calculate zoom based on current screen scale
                 currentMatrix.getValues(matrixValues)
                 val currentScale = matrixValues[Matrix.MSCALE_X]
-                val targetScale = currentScale * 2f // Make it 2x bigger than whatever the screen is showing
+                val targetScale = currentScale * 2f
 
-                // 2. Define the size of the square box on the screen (e.g., 300px)
                 val magSizeScreen = 300f
                 val srcSizeBmp = magSizeScreen / targetScale
 
-                // 3. Get exact coordinates of the point being dragged
                 val bx = cornerPoints[activePointIndex].x
                 val by = cornerPoints[activePointIndex].y
 
-                // 4. Calculate source square (from the raw bitmap)
                 val srcLeft = bx - srcSizeBmp / 2
                 val srcTop = by - srcSizeBmp / 2
                 val srcRight = bx + srcSizeBmp / 2
                 val srcBottom = by + srcSizeBmp / 2
 
-                // Prevent crashing if the user drags off the edge of the image
                 val safeSrcLeft = srcLeft.coerceIn(0f, bmp.width.toFloat())
                 val safeSrcTop = srcTop.coerceIn(0f, bmp.height.toFloat())
                 val safeSrcRight = srcRight.coerceIn(0f, bmp.width.toFloat())
                 val safeSrcBottom = srcBottom.coerceIn(0f, bmp.height.toFloat())
                 srcRect.set(safeSrcLeft.toInt(), safeSrcTop.toInt(), safeSrcRight.toInt(), safeSrcBottom.toInt())
 
-                // 5. Calculate destination square (on the screen)
                 val mappedX = mapped[activePointIndex * 2]
                 val mappedY = mapped[activePointIndex * 2 + 1]
 
-                // Place the box 150px above the finger so it's not hidden
                 val dstLeft = mappedX - magSizeScreen / 2
                 val dstBottom = mappedY - 150f
                 val dstTop = dstBottom - magSizeScreen
                 val dstRight = dstLeft + magSizeScreen
 
-                // Adjust destination scale if we clamped the edges in Step 4
                 val scaleRatio = magSizeScreen / srcSizeBmp
                 val safeDstLeft = dstLeft + (safeSrcLeft - srcLeft) * scaleRatio
                 val safeDstTop = dstTop + (safeSrcTop - srcTop) * scaleRatio
@@ -163,12 +153,10 @@ fun showFullscreenImage(
                 val safeDstBottom = dstBottom - (srcBottom - safeSrcBottom) * scaleRatio
                 dstRect.set(safeDstLeft, safeDstTop, safeDstRight, safeDstBottom)
 
-                // 6. Draw it to the canvas!
-                canvas.drawRect(dstRect, paintMagBackground) // Black background so image doesn't bleed through
-                canvas.drawBitmap(bmp, srcRect, dstRect, null) // The magnified image
-                canvas.drawRect(dstRect, paintMagBorder) // Yellow border
+                canvas.drawRect(dstRect, paintMagBackground)
+                canvas.drawBitmap(bmp, srcRect, dstRect, null)
+                canvas.drawRect(dstRect, paintMagBorder)
 
-                // 7. Draw the crosshair in the center of the box
                 val midY = safeDstTop + (safeDstBottom - safeDstTop) / 2
                 val midX = safeDstLeft + (safeDstRight - safeDstLeft) / 2
                 canvas.drawLine(safeDstLeft, midY, safeDstRight, midY, paintMagCrosshair)
@@ -186,8 +174,9 @@ fun showFullscreenImage(
         currentDisplayBitmap = if (isWarpMode && originalBitmap != null) {
             originalBitmap
         } else {
+            // Ensure we are drawing with the LOCALLY stored answers in case they were overridden!
             drawDebugOverlays(
-                cleanBitmap, qrData, detectedAnswers, correctAnswersMap,
+                cleanBitmap!!, qrData, currentAnswersLocally, correctAnswersMap,
                 showCorrect, showIncorrect, showSupposed, showDouble
             )
         }
@@ -256,11 +245,7 @@ fun showFullscreenImage(
     val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             val prevScale = scaleFactor
-            scaleFactor = 1f.coerceAtLeast(
-                (scaleFactor * detector.scaleFactor).coerceAtMost(
-                    maxScale
-                )
-            )
+            scaleFactor = 1f.coerceAtLeast((scaleFactor * detector.scaleFactor).coerceAtMost(maxScale))
             val scaleDiff = scaleFactor / prevScale
             currentMatrix.postScale(scaleDiff, scaleDiff, detector.focusX, detector.focusY)
             imageView.imageMatrix = currentMatrix
@@ -353,13 +338,36 @@ fun showFullscreenImage(
         ).apply { addRule(RelativeLayout.ALIGN_PARENT_BOTTOM); setMargins(32, 0, 32, 64) }
     }
 
-    val btnEnterToggle = MaterialButton(context).apply {
-        text = context.getString(R.string.button_text_toggle_legends); cornerRadius = 16
+    // ==========================================
+    // REFACTORED: GROUPED PRIMARY ACTION ROW
+    // ==========================================
+    val primaryActionRow = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = android.view.Gravity.CENTER
         layoutParams = RelativeLayout.LayoutParams(
-            RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT
+            RelativeLayout.LayoutParams.MATCH_PARENT, RelativeLayout.LayoutParams.WRAP_CONTENT
         ).apply { addRule(RelativeLayout.CENTER_HORIZONTAL) }
     }
-    bottomLayout.addView(btnEnterToggle)
+
+    val btnManualOverride = MaterialButton(context).apply {
+        text = "Manual Override"
+        cornerRadius = 16
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { setMargins(0, 0, 32, 0) } // Margin to space out the two buttons
+    }
+
+    val btnEnterToggle = MaterialButton(context).apply {
+        text = context.getString(R.string.button_text_toggle_legends)
+        cornerRadius = 16
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+    }
+
+    primaryActionRow.addView(btnManualOverride)
+    primaryActionRow.addView(btnEnterToggle)
+    bottomLayout.addView(primaryActionRow)
 
     val togglesGrid = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL; visibility = View.GONE
@@ -374,12 +382,7 @@ fun showFullscreenImage(
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(8, 8, 8, 8) }
             textSize = 12f; cornerRadius = 16; setTextColor(Color.WHITE)
             fun updateAppearance() {
-                val statusText = if (state) {
-                    context.getString(R.string.toggle_text_shown)
-                } else {
-                    context.getString(R.string.toggle_text_hidden)
-                }
-
+                val statusText = if (state) context.getString(R.string.toggle_text_shown) else context.getString(R.string.toggle_text_hidden)
                 text = context.getString(R.string.toggle_status_format, title, statusText)
                 backgroundTintList = ColorStateList.valueOf((if (state) "#4CAF50" else "#F44336").toColorInt())
             }
@@ -398,20 +401,49 @@ fun showFullscreenImage(
 
     togglesGrid.addView(row1); togglesGrid.addView(row2); bottomLayout.addView(togglesGrid); rootLayout.addView(bottomLayout)
 
-    btnEnterToggle.setOnClickListener {
-        btnEnterToggle.visibility = View.GONE; closeButton.visibility = View.GONE; btnFixWarp.visibility = View.GONE
-        btnExitToggle.visibility = View.VISIBLE; togglesGrid.visibility = View.VISIBLE
+    // ==========================================
+    // REFACTORED LOGIC HANDLING
+    // ==========================================
+    btnManualOverride.setOnClickListener {
+        // Trigger the Override Dialog, but pass our LOCAL answers variable
+        com.ntc.roec_scanner.utils.showManualOverrideDialog(
+            context, currentAnswersLocally
+        ) { updatedAnswers ->
+
+            // 1. Update the local variable
+            currentAnswersLocally = updatedAnswers
+
+            // 2. Refresh the fullscreen image instantly so the user sees the bubbles change
+            updateImage()
+
+            // 3. Fire the callback to the parent activity so it can grade & save
+            onManualOverrideSaved(updatedAnswers)
+        }
     }
+
+    btnEnterToggle.setOnClickListener {
+        primaryActionRow.visibility = View.GONE // Hide both Override and Toggle buttons
+        closeButton.visibility = View.GONE
+        btnFixWarp.visibility = View.GONE
+
+        btnExitToggle.visibility = View.VISIBLE
+        togglesGrid.visibility = View.VISIBLE
+    }
+
     btnExitToggle.setOnClickListener {
-        btnExitToggle.visibility = View.GONE; togglesGrid.visibility = View.GONE
-        btnEnterToggle.visibility = View.VISIBLE; closeButton.visibility = View.VISIBLE; btnFixWarp.visibility = View.VISIBLE
+        btnExitToggle.visibility = View.GONE
+        togglesGrid.visibility = View.GONE
+
+        primaryActionRow.visibility = View.VISIBLE // Bring them back
+        closeButton.visibility = View.VISIBLE
+        btnFixWarp.visibility = View.VISIBLE
     }
 
     btnFixWarp.setOnClickListener {
         if (!isWarpMode) {
             isWarpMode = true
             btnFixWarp.text = context.getString(R.string.button_text_save_exit)
-            btnEnterToggle.visibility = View.GONE
+            primaryActionRow.visibility = View.GONE // Hide bottom buttons while warping
             closeButton.visibility = View.GONE
             warpOverlay.visibility = View.VISIBLE
             updateImage()

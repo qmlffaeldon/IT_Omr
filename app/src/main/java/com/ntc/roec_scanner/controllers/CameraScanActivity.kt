@@ -607,15 +607,14 @@ class CameraScanActivity : AppCompatActivity() {
                     }
                     refreshDialogImage()
 
-                    // ==========================================
-                    // RESTORED: FULLSCREEN & WARP FIX LOGIC
-                    // ==========================================
                     imageView.setOnClickListener {
                         com.ntc.roec_scanner.utils.showFullscreenImage(
                             this@CameraScanActivity,
                             currentCleanBitmap, qrData, currentAnswers, correctAnswersMap,
                             true, true, false, true,
                             originalBitmap, currentCorners,
+
+                            // 1. WARP FIX CALLBACK
                             onWarpSaved = { newCorners ->
                                 android.widget.Toast.makeText(this@CameraScanActivity, "Re-scanning...", android.widget.Toast.LENGTH_SHORT).show()
 
@@ -633,7 +632,7 @@ class CameraScanActivity : AppCompatActivity() {
                                         refreshDialogImage()
 
                                         val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
-                                        if (finalScores.containsKey(99)) newScores[99] = finalScores[99]!! // Preserve manual code
+                                        if (finalScores.containsKey(99)) newScores[99] = finalScores[99]!!
 
                                         try {
                                             val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
@@ -652,55 +651,40 @@ class CameraScanActivity : AppCompatActivity() {
                                         android.widget.Toast.makeText(this@CameraScanActivity, "Warp Fixed & Saved to DB!", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }
+                            },
+
+                            // 2. NEW MANUAL OVERRIDE CALLBACK
+                            onManualOverrideSaved = { updatedAnswers ->
+                                android.widget.Toast.makeText(this@CameraScanActivity, "Applying overrides...", android.widget.Toast.LENGTH_SHORT).show()
+
+                                lifecycleScope.launch {
+                                    currentAnswers = updatedAnswers
+                                    refreshDialogImage() // Redraws the tiny preview dialog in the background
+
+                                    val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
+                                    if (finalScores.containsKey(99)) newScores[99] = finalScores[99]!!
+
+                                    try {
+                                        val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
+                                        val newResult = ExamResultsEntity(
+                                            examCode = examCode, setNumber = setNumber, seatNumber = seatNumber,
+                                            totalScore = newScores.values.sum(), completeRow = completeRow
+                                        )
+                                        val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+                                        val newElementScores = newScores.map { (testNumber, score) ->
+                                            ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
+                                        }
+                                        dbOverride.answerKeyDao().upsertElementScores(newElementScores)
+                                    } catch (e: Exception) { Log.e("OMR", "Failed to update DB after override", e) }
+
+                                    tvMessage.text = generateResultText(newScores)
+                                    android.widget.Toast.makeText(this@CameraScanActivity, "Overrides Saved!", android.widget.Toast.LENGTH_SHORT).show()
+                                }
                             }
                         )
                     }
 
-                    // ==========================================
-                    // MANUAL OVERRIDE BUBBLES LOGIC
-                    // ==========================================
-                    val btnManualOverride = MaterialButton(this@CameraScanActivity).apply {
-                        text = "Manual Override"
-                        cornerRadius = 16
-                        layoutParams = android.widget.LinearLayout.LayoutParams(
-                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply { setMargins(0, 0, 0, 32) }
-                    }
-
-                    btnManualOverride.setOnClickListener {
-                        com.ntc.roec_scanner.utils.showManualOverrideDialog(
-                            this@CameraScanActivity, currentAnswers
-                        ) { updatedAnswers ->
-                            android.widget.Toast.makeText(this@CameraScanActivity, "Applying overrides...", android.widget.Toast.LENGTH_SHORT).show()
-
-                            lifecycleScope.launch {
-                                currentAnswers = updatedAnswers
-                                refreshDialogImage()
-
-                                val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
-                                if (finalScores.containsKey(99)) newScores[99] = finalScores[99]!! // Preserve manual code
-
-                                try {
-                                    val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
-                                    val newResult = ExamResultsEntity(
-                                        examCode = examCode, setNumber = setNumber, seatNumber = seatNumber,
-                                        totalScore = newScores.values.sum(), completeRow = completeRow
-                                    )
-                                    val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
-                                    val newElementScores = newScores.map { (testNumber, score) ->
-                                        ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
-                                    }
-                                    dbOverride.answerKeyDao().upsertElementScores(newElementScores)
-                                } catch (e: Exception) { Log.e("OMR", "Failed to update DB after override", e) }
-
-                                tvMessage.text = generateResultText(newScores)
-                                android.widget.Toast.makeText(this@CameraScanActivity, "Overrides Saved!", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    }
-
-                    layout.addView(btnManualOverride)
+                    // (Ensure you completely delete the old btnManualOverride logic that was sitting below this!)
                     layout.addView(imageView)
                 }
 
