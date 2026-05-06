@@ -437,10 +437,18 @@ fun showManualOverrideDialog(
         setBackgroundColor(Color.WHITE)
     }
 
-    // --- TOP BAR ---
-    val topBar = RelativeLayout(context).apply {
+    // --- REFACTORED TOP BAR ---
+    val topSection = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
         setPadding(32, 48, 32, 32)
-        setBackgroundColor("#F5F5F5".toColorInt())
+        setBackgroundColor(Color.parseColor("#F5F5F5"))
+    }
+
+    val buttonsRow = RelativeLayout(context).apply {
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
     }
 
     val btnBack = MaterialButton(context).apply {
@@ -448,11 +456,21 @@ fun showManualOverrideDialog(
         cornerRadius = 16
         setOnClickListener { dialog.dismiss() }
     }
-
-    topBar.addView(btnBack, RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
+    buttonsRow.addView(btnBack, RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
         addRule(RelativeLayout.ALIGN_PARENT_START)
         addRule(RelativeLayout.CENTER_VERTICAL)
     })
+
+    val btnSave = MaterialButton(context).apply {
+        text = "Save Changes"
+        cornerRadius = 16
+    }
+    buttonsRow.addView(btnSave, RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
+        addRule(RelativeLayout.ALIGN_PARENT_END)
+        addRule(RelativeLayout.CENTER_VERTICAL)
+    })
+
+    topSection.addView(buttonsRow)
 
     val title = android.widget.TextView(context).apply {
         text = "Manual Override"
@@ -460,21 +478,49 @@ fun showManualOverrideDialog(
         setTypeface(null, android.graphics.Typeface.BOLD)
         setTextColor(Color.BLACK)
         gravity = android.view.Gravity.CENTER
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 32, 0, 0)
+        }
     }
-    topBar.addView(title, RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
-        addRule(RelativeLayout.CENTER_IN_PARENT)
-    })
+    topSection.addView(title)
+    rootLayout.addView(topSection)
 
-    val btnSave = MaterialButton(context).apply {
-        text = "Save Changes"
-        cornerRadius = 16
+    // --- HELPER FUNCTIONS FOR CUSTOM UI ---
+    fun createCellBorder(): android.graphics.drawable.GradientDrawable {
+        return android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            setStroke(2, "#E0E0E0".toColorInt())
+            setColor(Color.WHITE)
+        }
     }
-    topBar.addView(btnSave, RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
-        addRule(RelativeLayout.ALIGN_PARENT_END)
-        addRule(RelativeLayout.CENTER_VERTICAL)
-    })
 
-    rootLayout.addView(topBar)
+    fun createCustomCheckboxDrawable(): android.graphics.drawable.StateListDrawable {
+        val dpToPx = { dp: Int -> (dp * context.resources.displayMetrics.density).toInt() }
+        val size = dpToPx(24) // 24dp makes them nicely larger than default
+
+        val states = android.graphics.drawable.StateListDrawable()
+
+        // 1. Ticked State (Solid Black Box)
+        val checkedShape = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            setColor(Color.BLACK)
+            setSize(size, size)
+            cornerRadius = 4f
+        }
+
+        // 2. Unticked State (Hollow Light Gray Box)
+        val uncheckedShape = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            setColor(Color.TRANSPARENT)
+            setStroke(dpToPx(2), "#DDDDDD".toColorInt()) // Light gray outline
+            setSize(size, size)
+            cornerRadius = 4f
+        }
+
+        states.addState(intArrayOf(android.R.attr.state_checked), checkedShape)
+        states.addState(intArrayOf(-android.R.attr.state_checked), uncheckedShape)
+        return states
+    }
 
     // --- CONTENT ---
     val scrollView = android.widget.ScrollView(context).apply {
@@ -488,7 +534,6 @@ fun showManualOverrideDialog(
     rootLayout.addView(scrollView)
 
     // --- DATA MAPPING ---
-    // Extract a mutable working copy of the shaded bubbles mapped by TestNumber_QuestionNumber
     val workingMap = currentAnswers.associate {
         "${it.testNumber}_${it.questionNumber}" to it.shadedBubbles.toMutableList()
     }
@@ -496,7 +541,6 @@ fun showManualOverrideDialog(
     val grouped = currentAnswers.groupBy { it.testNumber }.toSortedMap()
 
     for ((testNumber, answers) in grouped) {
-        // Element Collapsible Header
         val elementHeader = android.widget.TextView(context).apply {
             text = "Element $testNumber \u25BC"
             textSize = 16f
@@ -512,7 +556,7 @@ fun showManualOverrideDialog(
 
         val rowsContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 16, 0, 32)
+            setPadding(0, 0, 0, 32)
         }
 
         var isExpanded = true
@@ -522,49 +566,88 @@ fun showManualOverrideDialog(
             elementHeader.text = "Element $testNumber ${if (isExpanded) "\u25BC" else "\u25B2"}"
         }
 
-        // Table Header Row (Q#, A, B, C, D)
+        // ==========================================
+        // TABLE HEADER ROW
+        // ==========================================
         val headerRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             weightSum = 5f
-            setPadding(0, 16, 0, 16)
         }
-        val headers = listOf("Q#", "A", "B", "C", "D")
-        headers.forEach { hText ->
-            headerRow.addView(android.widget.TextView(context).apply {
+
+        // Q# Column (Gets its own border)
+        headerRow.addView(android.widget.TextView(context).apply {
+            text = "Q#"
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 24, 0, 24)
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(Color.DKGRAY)
+            background = createCellBorder()
+        })
+
+        // Choices Wrapper (Groups A, B, C, D into a single bordered box)
+        val choicesHeaderWrapper = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 4f)
+            weightSum = 4f
+            background = createCellBorder()
+        }
+
+        listOf("A", "B", "C", "D").forEach { hText ->
+            choicesHeaderWrapper.addView(android.widget.TextView(context).apply {
                 text = hText
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 gravity = android.view.Gravity.CENTER
+                setPadding(0, 24, 0, 24)
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 setTextColor(Color.DKGRAY)
+                // NO BORDER HERE
             })
         }
+        headerRow.addView(choicesHeaderWrapper)
         rowsContainer.addView(headerRow)
 
-        // Generate Rows
+        // ==========================================
+        // DATA ROWS
+        // ==========================================
         for (answer in answers.sortedBy { it.questionNumber }) {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 weightSum = 5f
-                setPadding(0, 8, 0, 8)
             }
 
-            // Question Number Column
+            // Question Number Column (Gets its own border)
             row.addView(android.widget.TextView(context).apply {
                 text = answer.questionNumber.toString()
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                 gravity = android.view.Gravity.CENTER
+                setPadding(0, 16, 0, 16)
                 setTextColor(Color.BLACK)
                 setTypeface(null, android.graphics.Typeface.BOLD)
+                background = createCellBorder()
             })
 
-            // 4 Checkboxes (A, B, C, D)
+            // Choices Wrapper (Groups A, B, C, D into a single bordered box)
+            val choicesContentWrapper = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 4f)
+                weightSum = 4f
+                background = createCellBorder()
+            }
+
             val key = "${answer.testNumber}_${answer.questionNumber}"
             for (choice in 1..4) {
                 val cbContainer = LinearLayout(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                     gravity = android.view.Gravity.CENTER
+                    setPadding(0, 16, 0, 16)
+                    // NO BORDER HERE
                 }
+
                 val cb = android.widget.CheckBox(context).apply {
+                    // Overwrite default checkmark with our custom solid box
+                    buttonDrawable = createCustomCheckboxDrawable()
+
                     isChecked = workingMap[key]?.contains(choice) == true
                     setOnCheckedChangeListener { _, checked ->
                         val shaded = workingMap[key]!!
@@ -576,8 +659,9 @@ fun showManualOverrideDialog(
                     }
                 }
                 cbContainer.addView(cb)
-                row.addView(cbContainer)
+                choicesContentWrapper.addView(cbContainer)
             }
+            row.addView(choicesContentWrapper)
             rowsContainer.addView(row)
         }
         contentLayout.addView(rowsContainer)
@@ -589,7 +673,6 @@ fun showManualOverrideDialog(
             val key = "${old.testNumber}_${old.questionNumber}"
             val newShaded = workingMap[key]!!.distinct().sorted()
 
-            // Re-evaluate what this means for grading
             val newDetected = when (newShaded.size) {
                 0 -> -1 // Blank
                 1 -> newShaded.first() // Single Answer
