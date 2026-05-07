@@ -98,7 +98,6 @@ fun calculateExamRemarks(
     elementScores: Map<Int, Int>,
     completeRow: String
 ): String {
-    // Human-readable helper functions
     fun getScore(elementNumber: Int): Int = elementScores[elementNumber] ?: 0
     fun getRate(elementNumber: Int): Double = getScore(elementNumber) / 25.0
 
@@ -111,14 +110,14 @@ fun calculateExamRemarks(
         "FCRO-01020304" -> {
             val overallRate = (getScore(1) + getScore(2) + getScore(3) + getScore(4)) / 100.0
             if (overallRate >= 0.7 && getRate(1) >= 0.5 && getRate(2) >= 0.5 && getRate(3) >= 0.5 && getRate(4) >= 0.5) "PASSED"
-            else if ((getScore(1) + getScore(2) + getScore(3)) / 75.0 >= 0.7 && getRate(1) >= 0.5 && getRate(2) >= 0.5 && getRate(3) >= 0.5) "DG '2PHN'"
-            else if ((getScore(1) + getScore(2)) / 50.0 >= 0.7 && getRate(1) >= 0.5 && getRate(2) >= 0.5) "DG '3PHN'"
+            else if ((getScore(1) + getScore(2) + getScore(3)) / 75.0 >= 0.7 && getRate(1) >= 0.5 && getRate(2) >= 0.5 && getRate(3) >= 0.5) "DG '2PHN'\n(Downgraded to Second Class Radiotelephone Operator)"
+            else if ((getScore(1) + getScore(2)) / 50.0 >= 0.7 && getRate(1) >= 0.5 && getRate(2) >= 0.5) "DG '3PHN'\n(Downgraded to Third Class Radiotelephone Operator)"
             else if (overallRate >= 0.7) "FAILED*" else "FAILED"
         }
         "FCRO-010203" -> {
             val overallRate = (getScore(1) + getScore(2) + getScore(3)) / 75.0
             if (overallRate >= 0.7 && getRate(1) >= 0.5 && getRate(2) >= 0.5 && getRate(3) >= 0.5) "PASSED"
-            else if ((getScore(1) + getScore(2)) / 50.0 >= 0.7 && getRate(1) >= 0.5 && getRate(2) >= 0.5) "DG '3PHN'"
+            else if ((getScore(1) + getScore(2)) / 50.0 >= 0.7 && getRate(1) >= 0.5 && getRate(2) >= 0.5) "DG '3PHN'\n(Downgraded to Third Class Radiotelephone Operator)"
             else if (overallRate >= 0.7) "FAILED*" else "FAILED"
         }
         "FCRO-0304" -> {
@@ -148,8 +147,8 @@ fun calculateExamRemarks(
         "TYPEC-020304" -> {
             val overallRate = (getScore(2) + getScore(3) + getScore(4)) / 75.0
             if (overallRate >= 0.7 && getRate(2) >= 0.5 && getRate(3) >= 0.5 && getRate(4) >= 0.5) "PASSED"
-            else if (overallRate >= 0.7 && getRate(2) >= 0.7 && (getRate(3) < 0.5 || getRate(4) < 0.5)) "DG 'D'*"
-            else if (overallRate < 0.7 && getRate(2) >= 0.7) "DG 'D'"
+            else if (overallRate >= 0.7 && getRate(2) >= 0.7 && (getRate(3) < 0.5 || getRate(4) < 0.5)) "DG 'D'*\n(Downgraded to Class D)"
+            else if (overallRate < 0.7 && getRate(2) >= 0.7) "DG 'D'\n(Downgraded to Class D)"
             else if (overallRate >= 0.7) "FAILED*" else "FAILED"
         }
         "TYPEC-0304" -> {

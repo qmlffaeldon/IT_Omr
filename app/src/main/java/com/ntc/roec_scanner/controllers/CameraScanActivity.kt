@@ -524,53 +524,259 @@ class CameraScanActivity : AppCompatActivity() {
                 }
                 db.answerKeyDao().upsertElementScores(elementScores)
 
-                // TEXT GENERATOR FUNCTION
-                fun generateResultText(scores: Map<Int, Int>): String {
-                    return buildString {
-                        append("FINAL SCORES\n")
-                        append("Exam: $examCode\n")
-                        append("Seat: $seatNumber  |  Set: $setNumber\n")
-                        append("----------------\n")
+                // ==========================================
+                // EXCEL-STYLE UI BUILDER
+                // ==========================================
+                val darkRed = Color.parseColor("#C00000")
+                val lightGray = Color.parseColor("#EFEFEF")
 
-                        var standardElementCount = 0
-                        var standardElementTotalScore = 0
-
-                        scores.toSortedMap().forEach { (testNumber, score) ->
-                            val percent = score * 4
-                            if (testNumber == 99) {
-                                append("Code Score: $score / 25 ($percent%)\n")
-                            } else {
-                                standardElementCount++
-                                standardElementTotalScore += score
-                                append("Elem $testNumber: $score / 25 ($percent%)\n")
-                            }
-                        }
-                        append("----------------\n")
-                        append("Total: ${scores.values.sum()} / ${scores.size * 25}\n")
-
-                        if (completeRow.isNotEmpty()) {
-                            append("Complete Row: $completeRow\n")
-                        }
-
-                        // Average only standard elements (unless it's purely MORSE-CODE)
-                        val averagePercent = if (standardElementCount > 0) {
-                            (standardElementTotalScore.toDouble() * 4) / standardElementCount
-                        } else if (examCode == "MORSE-CODE") {
-                            (scores[99] ?: 0) * 4.0
-                        } else 0.0
-
-                        val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
-                        append("Average: $formattedAverage%\n")
-
-                        // --- CALL REFACTORED GRADING LOGIC ---
-                        val remarks = com.ntc.roec_scanner.grading.calculateExamRemarks(examCode, scores, completeRow)
-
-                        if (examCode == "TYPEA-080910COD") {
-                            append("\nRemarks:\n$remarks")
-                        } else {
-                            append("Remarks: $remarks")
-                        }
+                fun getBorder(bgColor: Int = Color.TRANSPARENT, strokeColor: Int = Color.BLACK, strokeWidth: Int = 1): android.graphics.drawable.GradientDrawable {
+                    return android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                        setStroke(strokeWidth, strokeColor)
+                        setColor(bgColor)
                     }
+                }
+
+                fun buildExcelGrid(scores: Map<Int, Int>): View {
+                    val root = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                    }
+
+                    val dp = { value: Int -> (value * resources.displayMetrics.density).toInt() }
+                    fun createDivider() = View(this@CameraScanActivity).apply {
+                        layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply {
+                            setMargins(0, dp(8), 0, dp(8))
+                        }
+                        setBackgroundColor(Color.LTGRAY)
+                    }
+
+                    // Pre-process Elements
+                    val standardElements = scores.keys.filter { it != 99 }.sorted()
+                    val hasCode = scores.containsKey(99)
+                    val orderedElements = standardElements.toMutableList().apply { if (hasCode) add(99) }
+
+                    var standardElementTotalScore = 0
+                    standardElements.forEach { standardElementTotalScore += scores[it]!! }
+                    val averagePercent = if (standardElements.isNotEmpty()) {
+                        (standardElementTotalScore.toDouble() * 4) / standardElements.size
+                    } else if (examCode == "MORSE-CODE") {
+                        (scores[99] ?: 0) * 4.0
+                    } else 0.0
+                    val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
+
+                    val remarks = com.ntc.roec_scanner.grading.calculateExamRemarks(examCode, scores, completeRow)
+
+                    // ROWS 1 & 2 Block
+                    val row1and2 = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        weightSum = 4f
+                        layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                    }
+
+                    val leftHeaderCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
+                        gravity = android.view.Gravity.CENTER
+                    }
+                    leftHeaderCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                        text = examCode
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        gravity = android.view.Gravity.CENTER
+                        setTextColor(Color.BLACK)
+                    })
+                    leftHeaderCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                        text = "Set: $setNumber"
+                        gravity = android.view.Gravity.CENTER
+                        setTextColor(Color.BLACK)
+                    })
+                    row1and2.addView(leftHeaderCol)
+
+                    val rightHeaderCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 2f)
+                        background = getBorder(strokeWidth = 2) // C1:D2 outer outline (thicker)
+                    }
+                    rightHeaderCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                        text = "Seat"
+                        textSize = 16f
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        gravity = android.view.Gravity.CENTER
+                        setTextColor(Color.BLACK)
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    })
+                    rightHeaderCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                        text = seatNumber.toString()
+                        textSize = 18f
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        setTextColor(darkRed)
+                        gravity = android.view.Gravity.CENTER
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                    })
+                    row1and2.addView(rightHeaderCol)
+                    root.addView(row1and2)
+
+                    root.addView(createDivider()) // ROW 3
+
+                    // ROWS 4 & 5 (Elements & Scores Grid)
+                    val row4 = android.widget.LinearLayout(this@CameraScanActivity).apply { orientation = android.widget.LinearLayout.HORIZONTAL; weightSum = 4f; layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT) }
+                    val row5 = android.widget.LinearLayout(this@CameraScanActivity).apply { orientation = android.widget.LinearLayout.HORIZONTAL; weightSum = 4f; layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT) }
+
+                    for (i in 0 until 4) {
+                        val elemId = orderedElements.getOrNull(i)
+
+                        // Row 4 Cell
+                        row4.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = if (elemId == null) "" else if (elemId == 99) "Code" else "Elem $elemId"
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            gravity = android.view.Gravity.CENTER
+                            setTextColor(Color.BLACK)
+                            setPadding(dp(3), dp(3), dp(3), dp(3)) // 3dp padding
+                            background = getBorder(bgColor = lightGray, strokeWidth = 1)
+                            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        })
+
+                        // Row 5 Cell (Bolder, slightly bigger font)
+                        row5.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = if (elemId == null) "" else scores[elemId]?.toString() ?: "0"
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            textSize = 16f
+                            gravity = android.view.Gravity.CENTER
+                            setTextColor(darkRed)
+                            setPadding(dp(3), dp(3), dp(3), dp(3)) // 3dp padding
+                            background = getBorder(strokeWidth = 1)
+                            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        })
+                    }
+                    root.addView(row4)
+                    root.addView(row5)
+
+                    root.addView(createDivider()) // ROW 6
+
+                    // ROWS 7-11 (Percentages & Averages)
+                    val row7to11 = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        weightSum = 4f
+                        layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                    }
+
+                    val leftPercentsCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
+                    }
+
+                    orderedElements.forEach { elemId ->
+                        val percentRow = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                            orientation = android.widget.LinearLayout.HORIZONTAL
+                            weightSum = 10f // Use 10f to easily assign 7f and 3f
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                        }
+                        val label = if (elemId == 99) "Code" else "Elem $elemId"
+                        val pct = (scores[elemId] ?: 0) * 4
+
+                        percentRow.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = label
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(Color.BLACK)
+                            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 7f)
+                            setPadding(dp(4), dp(4), dp(4), dp(4))
+                        })
+                        percentRow.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = "$pct%"
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(darkRed)
+                            gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
+                            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 3f)
+                            setPadding(dp(4), dp(4), dp(4), dp(4))
+                        })
+                        leftPercentsCol.addView(percentRow)
+                    }
+
+                    if (completeRow.isNotEmpty()) {
+                        val crRow = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                            orientation = android.widget.LinearLayout.HORIZONTAL
+                            weightSum = 10f
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                        }
+                        crRow.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = "Complete Row?"
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(Color.BLACK)
+                            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 7f)
+                            setPadding(dp(4), dp(4), dp(4), dp(4))
+                        })
+                        crRow.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = completeRow
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(darkRed)
+                            gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
+                            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 3f)
+                            setPadding(dp(4), dp(4), dp(4), dp(4))
+                        })
+                        leftPercentsCol.addView(crRow)
+                    }
+                    row7to11.addView(leftPercentsCol)
+
+                    val rightAveragesCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        gravity = android.view.Gravity.CENTER
+                        background = getBorder(strokeWidth = 2) // Outer border
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 2f)
+                    }
+
+                    val avgSpan = android.text.SpannableStringBuilder()
+                    avgSpan.append("Average: ")
+                    val avgStart = avgSpan.length
+                    avgSpan.append("$formattedAverage%")
+                    avgSpan.setSpan(android.text.style.ForegroundColorSpan(darkRed), avgStart, avgSpan.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    avgSpan.setSpan(android.text.style.RelativeSizeSpan(1.2f), avgStart, avgSpan.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+
+                    if (hasCode && examCode != "MORSE-CODE") {
+                        avgSpan.append("\n\nCode Average: ")
+                        val codeStart = avgSpan.length
+                        val codePct = (scores[99] ?: 0) * 4
+                        avgSpan.append("$codePct%")
+                        avgSpan.setSpan(android.text.style.ForegroundColorSpan(darkRed), codeStart, avgSpan.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        avgSpan.setSpan(android.text.style.RelativeSizeSpan(1.2f), codeStart, avgSpan.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+
+                    rightAveragesCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                        text = avgSpan
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        gravity = android.view.Gravity.CENTER
+                        setTextColor(Color.BLACK)
+                        setPadding(dp(8), dp(8), dp(8), dp(8))
+                    })
+                    row7to11.addView(rightAveragesCol)
+                    root.addView(row7to11)
+
+                    root.addView(createDivider()) // ROW 12
+
+                    // ROW 13 (Remarks)
+                    val isStrictlyPassed = remarks == "PASSED"
+                    val isStrictlyFailed = remarks == "FAILED"
+
+                    val (remTextColor, remBgColor) = when {
+                        isStrictlyPassed -> Pair(Color.parseColor("#375623"), Color.parseColor("#E2EFDA"))
+                        isStrictlyFailed -> Pair(darkRed, Color.parseColor("#FCD6D6"))
+                        else -> Pair(Color.parseColor("#BF8F00"), Color.parseColor("#FFF2CC"))
+                    }
+
+                    root.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                        text = remarks
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        gravity = android.view.Gravity.CENTER
+                        setTextColor(remTextColor)
+                        setBackgroundColor(remBgColor)
+                        setPadding(dp(8), dp(5), dp(8), dp(5))
+                        layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                    })
+
+                    return root
                 }
 
                 val scrollView = android.widget.ScrollView(this@CameraScanActivity)
@@ -579,11 +785,20 @@ class CameraScanActivity : AppCompatActivity() {
                     setPadding(48, 24, 48, 24)
                 }
 
-                val tvMessage = android.widget.TextView(this@CameraScanActivity).apply {
-                    text = generateResultText(finalScores)
-                    textSize = 14f
-                    setTextColor(Color.BLACK)
+                val resultsContainer = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    layoutParams = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins(0, 0, 0, 32) }
                 }
+
+                fun updateResultsView(currentScores: Map<Int, Int>) {
+                    resultsContainer.removeAllViews()
+                    resultsContainer.addView(buildExcelGrid(currentScores))
+                }
+                updateResultsView(finalScores)
+                layout.addView(resultsContainer)
 
                 // If it's not purely a Morse Code exam, show the image and override options
                 if (cleanBitmap != null && examCode != "MORSE-CODE") {
@@ -600,7 +815,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                     fun refreshDialogImage() {
                         val bmp = com.ntc.roec_scanner.modules.drawDebugOverlays(
-                            currentCleanBitmap!!, qrData, currentAnswers, correctAnswersMap,
+                            currentCleanBitmap, qrData, currentAnswers, correctAnswersMap,
                             true, true, false, true
                         )
                         imageView.setImageBitmap(bmp)
@@ -647,7 +862,7 @@ class CameraScanActivity : AppCompatActivity() {
                                             dbOverride.answerKeyDao().upsertElementScores(newElementScores)
                                         } catch (e: Exception) { Log.e("OMR", "Failed to update DB after warp fix", e) }
 
-                                        tvMessage.text = generateResultText(newScores)
+                                        updateResultsView(newScores)
                                         android.widget.Toast.makeText(this@CameraScanActivity, "Warp Fixed & Saved to DB!", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }
@@ -677,25 +892,30 @@ class CameraScanActivity : AppCompatActivity() {
                                         dbOverride.answerKeyDao().upsertElementScores(newElementScores)
                                     } catch (e: Exception) { Log.e("OMR", "Failed to update DB after override", e) }
 
-                                    tvMessage.text = generateResultText(newScores)
+                                    updateResultsView(newScores)
                                     android.widget.Toast.makeText(this@CameraScanActivity, "Overrides Saved!", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
                         )
                     }
 
-                    // (Ensure you completely delete the old btnManualOverride logic that was sitting below this!)
                     layout.addView(imageView)
                 }
 
-                layout.addView(tvMessage)
                 scrollView.addView(layout)
 
-                AlertDialog.Builder(this@CameraScanActivity)
-                    .setTitle("Results Saved ✓")
+                val dialog = AlertDialog.Builder(this@CameraScanActivity)
                     .setView(scrollView)
-                    .setPositiveButton("OK", null)
-                    .show()
+                    .setPositiveButton("Save", null)
+                    .setNegativeButton("Edit", null) // Empty function for now
+                    .create()
+
+                dialog.setOnShowListener {
+                    val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                    saveButton.setTextColor(Color.parseColor("#375623")) // Your requested color
+                }
+
+                dialog.show()
 
                 topCard.alpha = 1f
                 topCard.visibility = View.VISIBLE
