@@ -486,6 +486,7 @@ class CameraScanActivity : AppCompatActivity() {
     }
 
     // 3. THE SAVER & DISPLAYER
+    // 3. THE SAVER & DISPLAYER
     private fun saveAndDisplayResults(
         examCode: String,
         setNumber: Int,
@@ -499,25 +500,36 @@ class CameraScanActivity : AppCompatActivity() {
         originalBitmap: android.graphics.Bitmap?,
         corners: List<org.opencv.core.Point>?
     ) {
+        // --- GLOBAL STATE VARIABLES ---
+        var currentExamCode = examCode
+        var currentSetNumber = setNumber
+        var currentSeatNumber = seatNumber
+        var currentAnswers = detectedAnswers
+        var currentCorrectAnswersMap = correctAnswersMap
+        var currentCleanBitmap = cleanBitmap
+        var currentCorners = corners
+        var currentQrData = qrData
+        var currentScores = finalScores.toMutableMap()
+        var currentCompleteRow = completeRow
+
         lifecycleScope.launch {
             try {
                 val db = AppDatabase.getDatabase(this@CameraScanActivity)
-                val totalScore = finalScores.values.sum()
+                val totalScore = currentScores.values.sum()
 
-                // Save to ExamResultsEntity (Includes CompleteRow)
                 val examResult = ExamResultsEntity(
-                    examCode = examCode,
-                    setNumber = setNumber,
-                    seatNumber = seatNumber,
+                    examCode = currentExamCode,
+                    setNumber = currentSetNumber,
+                    seatNumber = currentSeatNumber,
                     totalScore = totalScore,
-                    completeRow = completeRow
+                    completeRow = currentCompleteRow
                 )
                 val examResultId = db.answerKeyDao().insertExamResult(examResult)
 
-                val elementScores = finalScores.map { (testNumber, score) ->
+                val elementScores = currentScores.map { (testNumber, score) ->
                     ElementScoreEntity(
                         examResultId = examResultId,
-                        elementNumber = testNumber, // 99 maps to code naturally
+                        elementNumber = testNumber,
                         score = score,
                         maxScore = 25
                     )
@@ -555,7 +567,6 @@ class CameraScanActivity : AppCompatActivity() {
                         setBackgroundColor(Color.LTGRAY)
                     }
 
-                    // Pre-process Elements
                     val standardElements = scores.keys.filter { it != 99 }.sorted()
                     val hasCode = scores.containsKey(99)
                     val orderedElements = standardElements.toMutableList().apply { if (hasCode) add(99) }
@@ -564,14 +575,13 @@ class CameraScanActivity : AppCompatActivity() {
                     standardElements.forEach { standardElementTotalScore += scores[it]!! }
                     val averagePercent = if (standardElements.isNotEmpty()) {
                         (standardElementTotalScore.toDouble() * 4) / standardElements.size
-                    } else if (examCode == "MORSE-CODE") {
+                    } else if (currentExamCode == "MORSE-CODE") {
                         (scores[99] ?: 0) * 4.0
                     } else 0.0
                     val formattedAverage = String.format(Locale.US, "%.2f", averagePercent)
 
-                    val remarks = com.ntc.roec_scanner.grading.calculateExamRemarks(examCode, scores, completeRow)
+                    val remarks = com.ntc.roec_scanner.grading.calculateExamRemarks(currentExamCode, scores, currentCompleteRow)
 
-                    // ROWS 1 & 2 Block
                     val row1and2 = android.widget.LinearLayout(this@CameraScanActivity).apply {
                         orientation = android.widget.LinearLayout.HORIZONTAL
                         weightSum = 4f
@@ -584,13 +594,13 @@ class CameraScanActivity : AppCompatActivity() {
                         gravity = android.view.Gravity.CENTER
                     }
                     leftHeaderCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
-                        text = examCode
+                        text = currentExamCode
                         setTypeface(null, android.graphics.Typeface.BOLD)
                         gravity = android.view.Gravity.CENTER
                         setTextColor(Color.BLACK)
                     })
                     leftHeaderCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
-                        text = "Set: $setNumber"
+                        text = "Set: $currentSetNumber"
                         gravity = android.view.Gravity.CENTER
                         setTextColor(Color.BLACK)
                     })
@@ -599,7 +609,7 @@ class CameraScanActivity : AppCompatActivity() {
                     val rightHeaderCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
                         orientation = android.widget.LinearLayout.HORIZONTAL
                         layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 2f)
-                        background = getBorder(strokeWidth = 2) // C1:D2 outer outline (thicker)
+                        background = getBorder(strokeWidth = 2)
                     }
                     rightHeaderCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
                         text = "Seat"
@@ -610,7 +620,7 @@ class CameraScanActivity : AppCompatActivity() {
                         layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 1f)
                     })
                     rightHeaderCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
-                        text = seatNumber.toString()
+                        text = currentSeatNumber.toString()
                         textSize = 18f
                         setTypeface(null, android.graphics.Typeface.BOLD)
                         setTextColor(darkRed)
@@ -620,34 +630,31 @@ class CameraScanActivity : AppCompatActivity() {
                     row1and2.addView(rightHeaderCol)
                     root.addView(row1and2)
 
-                    root.addView(createDivider()) // ROW 3
+                    root.addView(createDivider())
 
-                    // ROWS 4 & 5 (Elements & Scores Grid)
                     val row4 = android.widget.LinearLayout(this@CameraScanActivity).apply { orientation = android.widget.LinearLayout.HORIZONTAL; weightSum = 4f; layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT) }
                     val row5 = android.widget.LinearLayout(this@CameraScanActivity).apply { orientation = android.widget.LinearLayout.HORIZONTAL; weightSum = 4f; layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT) }
 
                     for (i in 0 until 4) {
                         val elemId = orderedElements.getOrNull(i)
 
-                        // Row 4 Cell
                         row4.addView(android.widget.TextView(this@CameraScanActivity).apply {
                             text = if (elemId == null) "" else if (elemId == 99) "Code" else "Elem $elemId"
                             setTypeface(null, android.graphics.Typeface.BOLD)
                             gravity = android.view.Gravity.CENTER
                             setTextColor(Color.BLACK)
-                            setPadding(dp(3), dp(3), dp(3), dp(3)) // 3dp padding
+                            setPadding(dp(3), dp(3), dp(3), dp(3))
                             background = getBorder(bgColor = lightGray, strokeWidth = 1)
                             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                         })
 
-                        // Row 5 Cell (Bolder, slightly bigger font)
                         row5.addView(android.widget.TextView(this@CameraScanActivity).apply {
                             text = if (elemId == null) "" else scores[elemId]?.toString() ?: "0"
                             setTypeface(null, android.graphics.Typeface.BOLD)
-                            textSize = 16f
+                            textSize = 18f
                             gravity = android.view.Gravity.CENTER
                             setTextColor(darkRed)
-                            setPadding(dp(3), dp(3), dp(3), dp(3)) // 3dp padding
+                            setPadding(dp(3), dp(3), dp(3), dp(3))
                             background = getBorder(strokeWidth = 1)
                             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                         })
@@ -655,9 +662,8 @@ class CameraScanActivity : AppCompatActivity() {
                     root.addView(row4)
                     root.addView(row5)
 
-                    root.addView(createDivider()) // ROW 6
+                    root.addView(createDivider())
 
-                    // ROWS 7-11 (Percentages & Averages)
                     val row7to11 = android.widget.LinearLayout(this@CameraScanActivity).apply {
                         orientation = android.widget.LinearLayout.HORIZONTAL
                         weightSum = 4f
@@ -672,7 +678,7 @@ class CameraScanActivity : AppCompatActivity() {
                     orderedElements.forEach { elemId ->
                         val percentRow = android.widget.LinearLayout(this@CameraScanActivity).apply {
                             orientation = android.widget.LinearLayout.HORIZONTAL
-                            weightSum = 10f // Use 10f to easily assign 7f and 3f
+                            weightSum = 10f
                             layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
                         }
                         val label = if (elemId == 99) "Code" else "Elem $elemId"
@@ -696,7 +702,7 @@ class CameraScanActivity : AppCompatActivity() {
                         leftPercentsCol.addView(percentRow)
                     }
 
-                    if (completeRow.isNotEmpty()) {
+                    if (currentCompleteRow.isNotEmpty()) {
                         val crRow = android.widget.LinearLayout(this@CameraScanActivity).apply {
                             orientation = android.widget.LinearLayout.HORIZONTAL
                             weightSum = 10f
@@ -710,7 +716,7 @@ class CameraScanActivity : AppCompatActivity() {
                             setPadding(dp(4), dp(4), dp(4), dp(4))
                         })
                         crRow.addView(android.widget.TextView(this@CameraScanActivity).apply {
-                            text = completeRow
+                            text = currentCompleteRow
                             setTypeface(null, android.graphics.Typeface.BOLD)
                             setTextColor(darkRed)
                             gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
@@ -724,7 +730,7 @@ class CameraScanActivity : AppCompatActivity() {
                     val rightAveragesCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
                         orientation = android.widget.LinearLayout.VERTICAL
                         gravity = android.view.Gravity.CENTER
-                        background = getBorder(strokeWidth = 2) // Outer border
+                        background = getBorder(strokeWidth = 2)
                         layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 2f)
                     }
 
@@ -735,7 +741,7 @@ class CameraScanActivity : AppCompatActivity() {
                     avgSpan.setSpan(android.text.style.ForegroundColorSpan(darkRed), avgStart, avgSpan.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                     avgSpan.setSpan(android.text.style.RelativeSizeSpan(1.2f), avgStart, avgSpan.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
 
-                    if (hasCode && examCode != "MORSE-CODE") {
+                    if (hasCode && currentExamCode != "MORSE-CODE") {
                         avgSpan.append("\n\nCode Average: ")
                         val codeStart = avgSpan.length
                         val codePct = (scores[99] ?: 0) * 4
@@ -754,9 +760,8 @@ class CameraScanActivity : AppCompatActivity() {
                     row7to11.addView(rightAveragesCol)
                     root.addView(row7to11)
 
-                    root.addView(createDivider()) // ROW 12
+                    root.addView(createDivider())
 
-                    // ROW 13 (Remarks)
                     val isStrictlyPassed = remarks == "PASSED"
                     val isStrictlyFailed = remarks == "FAILED"
 
@@ -793,29 +798,23 @@ class CameraScanActivity : AppCompatActivity() {
                     ).apply { setMargins(0, 0, 0, 32) }
                 }
 
-                fun updateResultsView(currentScores: Map<Int, Int>) {
+                fun updateResultsView(scoresToDraw: Map<Int, Int>) {
                     resultsContainer.removeAllViews()
-                    resultsContainer.addView(buildExcelGrid(currentScores))
+                    resultsContainer.addView(buildExcelGrid(scoresToDraw))
                 }
-                updateResultsView(finalScores)
+                updateResultsView(currentScores)
                 layout.addView(resultsContainer)
 
-                // If it's not purely a Morse Code exam, show the image and override options
-                if (cleanBitmap != null && examCode != "MORSE-CODE") {
-
-                    // Keep track of the current states so both Warp and Override updates apply cumulatively
-                    var currentAnswers = detectedAnswers
-                    var currentCleanBitmap = cleanBitmap
-                    var currentCorners = corners
-
+                if (currentCleanBitmap != null && currentExamCode != "MORSE-CODE") {
                     val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
                         adjustViewBounds = true
                         setPadding(0, 0, 0, 32)
                     }
 
                     fun refreshDialogImage() {
+                        if (currentCleanBitmap == null) return
                         val bmp = com.ntc.roec_scanner.modules.drawDebugOverlays(
-                            currentCleanBitmap, qrData, currentAnswers, correctAnswersMap,
+                            currentCleanBitmap!!, currentQrData, currentAnswers, currentCorrectAnswersMap,
                             true, true, false, true
                         )
                         imageView.setImageBitmap(bmp)
@@ -825,18 +824,17 @@ class CameraScanActivity : AppCompatActivity() {
                     imageView.setOnClickListener {
                         com.ntc.roec_scanner.utils.showFullscreenImage(
                             this@CameraScanActivity,
-                            currentCleanBitmap, qrData, currentAnswers, correctAnswersMap,
+                            currentCleanBitmap, currentQrData, currentAnswers, currentCorrectAnswersMap,
                             true, true, false, true,
                             originalBitmap, currentCorners,
 
-                            // 1. WARP FIX CALLBACK
                             onWarpSaved = { newCorners ->
                                 android.widget.Toast.makeText(this@CameraScanActivity, "Re-scanning...", android.widget.Toast.LENGTH_SHORT).show()
 
                                 lifecycleScope.launch {
                                     val updatedResult = kotlinx.coroutines.Dispatchers.Default.invoke {
                                         com.ntc.roec_scanner.modules.reprocessWithNewCorners(
-                                            this@CameraScanActivity, originalBitmap!!, newCorners, qrData, correctAnswersMap
+                                            this@CameraScanActivity, originalBitmap!!, newCorners, currentQrData, currentCorrectAnswersMap
                                         )
                                     }
 
@@ -846,53 +844,62 @@ class CameraScanActivity : AppCompatActivity() {
                                         currentCorners = newCorners
                                         refreshDialogImage()
 
-                                        val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
-                                        if (finalScores.containsKey(99)) newScores[99] = finalScores[99]!!
+                                        val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
+
+                                        // Keep Code Score if applicable
+                                        if (currentExamCode == "TYPEA-080910COD" || currentExamCode == "MORSE-CODE") {
+                                            newScores[99] = currentScores[99] ?: 0
+                                        }
+                                        currentScores = newScores
 
                                         try {
                                             val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
                                             val newResult = ExamResultsEntity(
-                                                examCode = examCode, setNumber = setNumber, seatNumber = seatNumber,
-                                                totalScore = newScores.values.sum(), completeRow = completeRow
+                                                examCode = currentExamCode, setNumber = currentSetNumber, seatNumber = currentSeatNumber,
+                                                totalScore = currentScores.values.sum(), completeRow = currentCompleteRow
                                             )
                                             val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
-                                            val newElementScores = newScores.map { (testNumber, score) ->
+                                            val newElementScores = currentScores.map { (testNumber, score) ->
                                                 ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
                                             }
                                             dbOverride.answerKeyDao().upsertElementScores(newElementScores)
                                         } catch (e: Exception) { Log.e("OMR", "Failed to update DB after warp fix", e) }
 
-                                        updateResultsView(newScores)
+                                        updateResultsView(currentScores)
                                         android.widget.Toast.makeText(this@CameraScanActivity, "Warp Fixed & Saved to DB!", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             },
 
-                            // 2. NEW MANUAL OVERRIDE CALLBACK
                             onManualOverrideSaved = { updatedAnswers ->
                                 android.widget.Toast.makeText(this@CameraScanActivity, "Applying overrides...", android.widget.Toast.LENGTH_SHORT).show()
 
                                 lifecycleScope.launch {
                                     currentAnswers = updatedAnswers
-                                    refreshDialogImage() // Redraws the tiny preview dialog in the background
+                                    refreshDialogImage()
 
-                                    val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
-                                    if (finalScores.containsKey(99)) newScores[99] = finalScores[99]!!
+                                    val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
+
+                                    // Keep Code Score if applicable
+                                    if (currentExamCode == "TYPEA-080910COD" || currentExamCode == "MORSE-CODE") {
+                                        newScores[99] = currentScores[99] ?: 0
+                                    }
+                                    currentScores = newScores
 
                                     try {
                                         val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
                                         val newResult = ExamResultsEntity(
-                                            examCode = examCode, setNumber = setNumber, seatNumber = seatNumber,
-                                            totalScore = newScores.values.sum(), completeRow = completeRow
+                                            examCode = currentExamCode, setNumber = currentSetNumber, seatNumber = currentSeatNumber,
+                                            totalScore = currentScores.values.sum(), completeRow = currentCompleteRow
                                         )
                                         val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
-                                        val newElementScores = newScores.map { (testNumber, score) ->
+                                        val newElementScores = currentScores.map { (testNumber, score) ->
                                             ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
                                         }
                                         dbOverride.answerKeyDao().upsertElementScores(newElementScores)
                                     } catch (e: Exception) { Log.e("OMR", "Failed to update DB after override", e) }
 
-                                    updateResultsView(newScores)
+                                    updateResultsView(currentScores)
                                     android.widget.Toast.makeText(this@CameraScanActivity, "Overrides Saved!", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
@@ -904,15 +911,271 @@ class CameraScanActivity : AppCompatActivity() {
 
                 scrollView.addView(layout)
 
+                // ==========================================
+                // MAIN DIALOG CREATION
+                // ==========================================
                 val dialog = AlertDialog.Builder(this@CameraScanActivity)
                     .setView(scrollView)
                     .setPositiveButton("Save", null)
-                    .setNegativeButton("Edit", null) // Empty function for now
+                    .setNegativeButton("Edit", null)
                     .create()
 
                 dialog.setOnShowListener {
                     val saveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                    saveButton.setTextColor(Color.parseColor("#375623")) // Your requested color
+                    saveButton.setTextColor(Color.WHITE)
+                    saveButton.setBackgroundColor(Color.parseColor("#375623"))
+                    saveButton.setOnClickListener {
+                        dialog.dismiss()
+                    }
+
+                    val editButton = dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+                    editButton.setTextColor(Color.GRAY)
+
+                    editButton.setOnClickListener {
+                        val editLayout = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                            orientation = android.widget.LinearLayout.VERTICAL
+                            setPadding(64, 48, 64, 48)
+                        }
+
+                        val dp = { value: Int -> (value * resources.displayMetrics.density).toInt() }
+                        fun getOutlineBackground(): android.graphics.drawable.GradientDrawable {
+                            return android.graphics.drawable.GradientDrawable().apply {
+                                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                                setStroke(dp(1), Color.parseColor("#A0A0A0"))
+                                cornerRadius = dp(4).toFloat()
+                                setColor(Color.WHITE)
+                            }
+                        }
+
+                        // Exam Type Input
+                        editLayout.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = "Exam Type"
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(Color.BLACK)
+                        })
+                        val spExamType = android.widget.Spinner(this@CameraScanActivity).apply {
+                            val typeAdapter = android.widget.ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, com.ntc.roec_scanner.controllers.EXAM_TYPES)
+                            adapter = typeAdapter
+                            val typeIndex = com.ntc.roec_scanner.controllers.EXAM_TYPES.indexOf(currentExamCode)
+                            setSelection(if (typeIndex >= 0) typeIndex else 0)
+                            background = getOutlineBackground()
+                            setPadding(dp(12), dp(16), dp(12), dp(16))
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                setMargins(0, dp(4), 0, 0)
+                            }
+                        }
+                        editLayout.addView(spExamType)
+
+                        val rowLayout = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                            orientation = android.widget.LinearLayout.HORIZONTAL
+                            weightSum = 2f
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                setMargins(0, dp(16), 0, 0)
+                            }
+                        }
+
+                        // Set Number
+                        val leftCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                            orientation = android.widget.LinearLayout.VERTICAL
+                            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(0, 0, dp(8), 0) }
+                        }
+                        leftCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = "Set Number"
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(Color.BLACK)
+                        })
+                        val spSet = android.widget.Spinner(this@CameraScanActivity).apply {
+                            val setAdapter = android.widget.ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, com.ntc.roec_scanner.controllers.SETS)
+                            adapter = setAdapter
+                            val setIndex = com.ntc.roec_scanner.controllers.SETS.indexOf(currentSetNumber.toString())
+                            setSelection(if (setIndex >= 0) setIndex else 0)
+                            background = getOutlineBackground()
+                            setPadding(dp(12), dp(16), dp(12), dp(16))
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                setMargins(0, dp(4), 0, 0)
+                            }
+                        }
+                        leftCol.addView(spSet)
+                        rowLayout.addView(leftCol)
+
+                        // Seat Number
+                        val rightCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                            orientation = android.widget.LinearLayout.VERTICAL
+                            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(8), 0, 0, 0) }
+                        }
+                        rightCol.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = "Seat Number"
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(Color.BLACK)
+                        })
+                        val etSeatNumber = android.widget.EditText(this@CameraScanActivity).apply {
+                            setText(currentSeatNumber.toString())
+                            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                            setTextColor(Color.BLACK)
+                            background = getOutlineBackground()
+                            setPadding(dp(12), dp(16), dp(12), dp(16))
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                setMargins(0, dp(4), 0, 0)
+                            }
+                        }
+                        rightCol.addView(etSeatNumber)
+                        rowLayout.addView(rightCol)
+
+                        editLayout.addView(rowLayout)
+
+                        // --- NEW: Dynamic Code Inputs ---
+                        val codeInputContainer = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                            orientation = android.widget.LinearLayout.VERTICAL
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                setMargins(0, dp(16), 0, 0)
+                            }
+                            visibility = if (currentExamCode == "TYPEA-080910COD" || currentExamCode == "MORSE-CODE") View.VISIBLE else View.GONE
+                        }
+
+                        codeInputContainer.addView(android.widget.TextView(this@CameraScanActivity).apply {
+                            text = "Code Score (0-25)"
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(Color.BLACK)
+                        })
+                        val etCodeScore = android.widget.EditText(this@CameraScanActivity).apply {
+                            setText(currentScores[99]?.toString() ?: "")
+                            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                            setTextColor(Color.BLACK)
+                            background = getOutlineBackground()
+                            setPadding(dp(12), dp(16), dp(12), dp(16))
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                                setMargins(0, dp(4), 0, dp(16))
+                            }
+                        }
+                        codeInputContainer.addView(etCodeScore)
+
+                        val cbCompleteRow = android.widget.CheckBox(this@CameraScanActivity).apply {
+                            text = "Complete Row?"
+                            textSize = 16f
+                            setTextColor(Color.BLACK)
+                            isChecked = currentCompleteRow == "Yes"
+                        }
+                        codeInputContainer.addView(cbCompleteRow)
+
+                        editLayout.addView(codeInputContainer)
+
+                        // Toggle Code Inputs based on Exam Type selection
+                        spExamType.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                                val selectedType = com.ntc.roec_scanner.controllers.EXAM_TYPES[position]
+                                if (selectedType == "TYPEA-080910COD" || selectedType == "MORSE-CODE") {
+                                    codeInputContainer.visibility = View.VISIBLE
+                                } else {
+                                    codeInputContainer.visibility = View.GONE
+                                }
+                            }
+                            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                        }
+
+                        val editPopup = AlertDialog.Builder(this@CameraScanActivity)
+                            .setView(editLayout)
+                            .setPositiveButton("Save Changes", null)
+                            .setNegativeButton("Cancel", null)
+                            .create()
+
+                        editPopup.setOnShowListener {
+                            val popupSaveBtn = editPopup.getButton(AlertDialog.BUTTON_POSITIVE)
+                            popupSaveBtn.setTextColor(Color.WHITE)
+                            popupSaveBtn.setBackgroundColor(Color.parseColor("#375623"))
+
+                            popupSaveBtn.setOnClickListener {
+                                val typePos = spExamType.selectedItemPosition
+                                val newExamCode = if (typePos >= 0) com.ntc.roec_scanner.controllers.EXAM_TYPES[typePos] else currentExamCode
+                                val newSeatNumber = etSeatNumber.text.toString().toIntOrNull()
+                                val setPos = spSet.selectedItemPosition
+                                val newSetNumber = if (setPos >= 0) com.ntc.roec_scanner.controllers.SETS[setPos].toInt() else 1
+
+                                if (newSeatNumber == null) {
+                                    android.widget.Toast.makeText(this@CameraScanActivity, "Seat Number is required.", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@setOnClickListener
+                                }
+
+                                // Handle Code Data based on the *newly selected* exam type
+                                if (newExamCode == "TYPEA-080910COD" || newExamCode == "MORSE-CODE") {
+                                    val manualCodeScore = etCodeScore.text.toString().toIntOrNull() ?: 0
+                                    if (manualCodeScore > 25) {
+                                        android.widget.Toast.makeText(this@CameraScanActivity, "Max code score is 25.", android.widget.Toast.LENGTH_SHORT).show()
+                                        return@setOnClickListener
+                                    }
+                                    currentScores[99] = manualCodeScore
+                                    currentCompleteRow = if (cbCompleteRow.isChecked) "Yes" else "No"
+                                } else {
+                                    currentScores.remove(99)
+                                    currentCompleteRow = ""
+                                }
+
+                                currentExamCode = newExamCode
+                                currentSetNumber = newSetNumber
+                                currentSeatNumber = newSeatNumber
+
+                                lifecycleScope.launch {
+                                    val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
+
+                                    val newCorrectAnswersMap = mutableMapOf<Int, String>()
+                                    com.ntc.roec_scanner.grading.ExamConfigurations.getTestNumbersForTestType(currentExamCode).forEach { t ->
+                                        dbOverride.answerKeyDao().getAnswerKey(currentExamCode, t, currentSetNumber)?.let {
+                                            newCorrectAnswersMap[t] = it.answerString
+                                        }
+                                    }
+                                    currentCorrectAnswersMap = newCorrectAnswersMap
+
+                                    if (originalBitmap != null && currentExamCode != "MORSE-CODE") {
+                                        currentQrData = currentQrData?.copy(testType = currentExamCode, setNumber = currentSetNumber, seatNumber = currentSeatNumber)
+                                            ?: QRCodeData(testType = currentExamCode, setNumber = currentSetNumber, seatNumber = currentSeatNumber)
+
+                                        val updatedResult = kotlinx.coroutines.Dispatchers.Default.invoke {
+                                            com.ntc.roec_scanner.modules.reprocessWithNewCorners(
+                                                this@CameraScanActivity, originalBitmap, currentCorners ?: emptyList(), currentQrData, currentCorrectAnswersMap
+                                            )
+                                        }
+                                        if (updatedResult.debugBitmap != null) currentCleanBitmap = updatedResult.debugBitmap
+                                        currentAnswers = updatedResult.answers
+                                    } else if (currentExamCode == "MORSE-CODE") {
+                                        // Clear out physical bubble states if they swap to pure morse code
+                                        currentCleanBitmap = null
+                                        currentAnswers = emptyList()
+                                    }
+
+                                    refreshDialogImage()
+
+                                    // Regrade new bubbles
+                                    val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
+
+                                    // Protect the manual code score we just saved!
+                                    if (currentScores.containsKey(99)) {
+                                        newScores[99] = currentScores[99]!!
+                                    }
+                                    currentScores = newScores
+
+                                    try {
+                                        val newResult = ExamResultsEntity(
+                                            examCode = currentExamCode, setNumber = currentSetNumber, seatNumber = currentSeatNumber,
+                                            totalScore = currentScores.values.sum(), completeRow = currentCompleteRow
+                                        )
+                                        val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+                                        val newElementScores = currentScores.map { (testNumber, score) ->
+                                            ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
+                                        }
+                                        dbOverride.answerKeyDao().upsertElementScores(newElementScores)
+                                    } catch (e: Exception) { Log.e("OMR", "Failed to update DB after edit", e) }
+
+                                    updateResultsView(currentScores)
+                                    editPopup.dismiss()
+                                    android.widget.Toast.makeText(this@CameraScanActivity, "Details Updated!", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+
+                            val popupCancelBtn = editPopup.getButton(AlertDialog.BUTTON_NEGATIVE)
+                            popupCancelBtn.setTextColor(darkRed)
+                            popupCancelBtn.setOnClickListener { editPopup.dismiss() }
+                        }
+                        editPopup.show()
+                    }
                 }
 
                 dialog.show()
