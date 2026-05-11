@@ -14,9 +14,10 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.LinearLayout
-import android.widget.RelativeLayout
 import android.widget.Spinner
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import androidx.core.graphics.toColorInt
@@ -25,6 +26,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.snackbar.Snackbar
 import com.ntc.roec_scanner.R
 import com.ntc.roec_scanner.database.AnswerKeyEntity
+import com.ntc.roec_scanner.database.AnswerKeyImporter
 import com.ntc.roec_scanner.database.AppDatabase
 import com.ntc.roec_scanner.grading.ExamConfigurations
 import kotlinx.coroutines.Dispatchers
@@ -41,8 +43,38 @@ class EditAnswerKeyActivity : AppCompatActivity() {
     private lateinit var gridContainer: LinearLayout
     private lateinit var btnSave: MaterialButton
     private lateinit var btnExportCsv: MaterialButton
+    private lateinit var btnImport: MaterialButton
 
     private val activeAnswers = mutableMapOf<Int, MutableMap<Int, MutableSet<String>>>()
+    private var allDbKeys: List<AnswerKeyEntity> = emptyList()
+
+    // 1. Re-implemented the Import File Picker
+    private val pickExcelFile = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            lifecycleScope.launch {
+                val db = AppDatabase.getDatabase(this@EditAnswerKeyActivity)
+                val result = AnswerKeyImporter.importFromUri(this@EditAnswerKeyActivity, it, db.answerKeyDao())
+
+                if (result.success) {
+                    AlertDialog.Builder(this@EditAnswerKeyActivity)
+                        .setTitle("Import Successful")
+                        .setMessage("${result.rowsImported} exam types imported\n${result.entriesInserted} answer keys stored")
+                        .setPositiveButton("OK") { _, _ ->
+                            loadAvailableExams() // Refresh Spinners and UI!
+                        }
+                        .show()
+                } else {
+                    AlertDialog.Builder(this@EditAnswerKeyActivity)
+                        .setTitle("Import Failed")
+                        .setMessage(result.error)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,13 +90,18 @@ class EditAnswerKeyActivity : AppCompatActivity() {
         gridContainer = findViewById(R.id.gridContainer)
         btnSave = findViewById(R.id.btnSave)
         btnExportCsv = findViewById(R.id.btnExportCsv)
+        btnImport = findViewById(R.id.btnImport)
 
         setupSpinners()
+        loadAvailableExams()
+
+        btnImport.setOnClickListener {
+            pickExcelFile.launch("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        }
 
         btnSave.setOnClickListener { saveToDatabase() }
 
         btnExportCsv.setOnClickListener {
-            // Auto-save changes first before backing up
             saveToDatabase {
                 exportAllAnswerKeysToCSV()
             }
@@ -72,28 +109,67 @@ class EditAnswerKeyActivity : AppCompatActivity() {
     }
 
     private fun setupSpinners() {
-        val typeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, EXAM_TYPES)
-        spExamType.adapter = typeAdapter
+        spExamType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                updateSetsForSelectedExam()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
-        val setAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, SETS)
-        spSetNumber.adapter = setAdapter
-
-        val selectionListener = object : AdapterView.OnItemSelectedListener {
+        spSetNumber.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 loadAnswerKeys()
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+    }
 
-        spExamType.onItemSelectedListener = selectionListener
-        spSetNumber.onItemSelectedListener = selectionListener
+    // 2. Dynamically queries DB and populates Exam Types
+    private fun loadAvailableExams() {
+        lifecycleScope.launch {
+            val db = AppDatabase.getDatabase(this@EditAnswerKeyActivity).answerKeyDao()
+            allDbKeys = db.getAllAnswerKeys()
+
+            if (allDbKeys.isEmpty()) {
+                val emptyAdapter = ArrayAdapter(this@EditAnswerKeyActivity, android.R.layout.simple_spinner_dropdown_item, listOf("No Exams Found"))
+                spExamType.adapter = emptyAdapter
+                spSetNumber.adapter = ArrayAdapter(this@EditAnswerKeyActivity, android.R.layout.simple_spinner_dropdown_item, listOf("-"))
+                gridContainer.removeAllViews()
+                btnSave.isEnabled = false
+                btnExportCsv.isEnabled = false
+            } else {
+                btnSave.isEnabled = true
+                btnExportCsv.isEnabled = true
+
+                val distinctExams = allDbKeys.map { it.examCode }.distinct().sorted()
+                spExamType.adapter = ArrayAdapter(this@EditAnswerKeyActivity, android.R.layout.simple_spinner_dropdown_item, distinctExams)
+                // updateSetsForSelectedExam() automatically fires due to the selection listener
+            }
+        }
+    }
+
+    // 3. Dynamically populates Set Numbers based on the chosen Exam Type
+    private fun updateSetsForSelectedExam() {
+        val selectedExam = spExamType.selectedItem?.toString() ?: return
+        if (selectedExam == "No Exams Found") return
+
+        val distinctSets = allDbKeys.filter { it.examCode == selectedExam }
+            .map { it.setNumber.toString() }
+            .distinct()
+            .sorted()
+
+        spSetNumber.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, distinctSets)
+        // loadAnswerKeys() automatically fires due to the set selection listener
     }
 
     private fun loadAnswerKeys() {
         val selectedExam = spExamType.selectedItem?.toString() ?: return
+        if (selectedExam == "No Exams Found") return
+
         val selectedSet = spSetNumber.selectedItem?.toString()?.toIntOrNull() ?: 1
 
-        val elements = ExamConfigurations.getTestNumbersForTestType(selectedExam)
+        // 4. Exclude Element 99 from the UI build process
+        val elements = ExamConfigurations.getTestNumbersForTestType(selectedExam).filter { it != 99 }
 
         lifecycleScope.launch {
             val db = AppDatabase.getDatabase(this@EditAnswerKeyActivity).answerKeyDao()
@@ -128,7 +204,6 @@ class EditAnswerKeyActivity : AppCompatActivity() {
         }
     }
 
-    // --- HELPER FUNCTIONS FOR CUSTOM UI ---
     private fun createCellBorder(): android.graphics.drawable.GradientDrawable {
         return android.graphics.drawable.GradientDrawable().apply {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE
@@ -169,7 +244,6 @@ class EditAnswerKeyActivity : AppCompatActivity() {
         elements.forEach { elementNum ->
             val elementMap = activeAnswers[elementNum] ?: return@forEach
 
-            // ELEMENT HEADER
             val elementHeader = TextView(this).apply {
                 text = "Element $elementNum \u25BC"
                 textSize = 16f
@@ -195,7 +269,6 @@ class EditAnswerKeyActivity : AppCompatActivity() {
                 elementHeader.text = "Element $elementNum ${if (isExpanded) "\u25BC" else "\u25B2"}"
             }
 
-            // TABLE HEADER ROW
             val headerRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 weightSum = 5f
@@ -231,7 +304,6 @@ class EditAnswerKeyActivity : AppCompatActivity() {
             headerRow.addView(choicesHeaderWrapper)
             rowsContainer.addView(headerRow)
 
-            // DATA ROWS
             for (q in 1..25) {
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -284,7 +356,6 @@ class EditAnswerKeyActivity : AppCompatActivity() {
         }
     }
 
-    // Optional callback allows us to chain exports safely after a DB save
     private fun saveToDatabase(onSuccess: (() -> Unit)? = null) {
         val selectedExam = spExamType.selectedItem?.toString() ?: return
         val selectedSet = spSetNumber.selectedItem?.toString()?.toIntOrNull() ?: 1
@@ -293,7 +364,6 @@ class EditAnswerKeyActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val db = AppDatabase.getDatabase(this@EditAnswerKeyActivity).answerKeyDao()
 
-            // 1. STRICT VALIDATION PHASE
             for ((elementNum, qMap) in activeAnswers) {
                 for (q in 1..25) {
                     val answers = qMap[q]?.filter { it in "ABCD" } ?: emptyList()
@@ -308,7 +378,6 @@ class EditAnswerKeyActivity : AppCompatActivity() {
                 }
             }
 
-            // 2. SAVE PHASE
             activeAnswers.forEach { (elementNum, qMap) ->
                 val sb = java.lang.StringBuilder()
 
@@ -330,6 +399,9 @@ class EditAnswerKeyActivity : AppCompatActivity() {
                 db.insertAnswerKey(entity)
             }
 
+            // Sync allDbKeys so next operations export fresh data
+            allDbKeys = db.getAllAnswerKeys()
+
             if (onSuccess == null) {
                 Snackbar.make(rootView, "Answer keys updated successfully", 3000).show()
             } else {
@@ -342,10 +414,7 @@ class EditAnswerKeyActivity : AppCompatActivity() {
         val rootView = findViewById<View>(android.R.id.content)
 
         lifecycleScope.launch {
-            val db = AppDatabase.getDatabase(this@EditAnswerKeyActivity).answerKeyDao()
-            val allKeys = db.getAllAnswerKeys()
-
-            if (allKeys.isEmpty()) {
+            if (allDbKeys.isEmpty()) {
                 Snackbar.make(rootView, "No answer keys found in database to export.", Snackbar.LENGTH_LONG).show()
                 return@launch
             }
@@ -356,7 +425,6 @@ class EditAnswerKeyActivity : AppCompatActivity() {
             val resolver = contentResolver
             val collectionUri = MediaStore.Files.getContentUri("external")
 
-            // Check for existing file and delete to simulate overwrite
             val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
             val selectionArgs = arrayOf(fileName, "$relativePath%")
 
@@ -385,19 +453,19 @@ class EditAnswerKeyActivity : AppCompatActivity() {
                     resolver.openOutputStream(uri)?.use { outputStream ->
                         val writer = outputStream.bufferedWriter()
 
-                        // Group keys by Exam and Set so we write one line per test
-                        val groupedKeys = allKeys.groupBy { Pair(it.examCode, it.setNumber) }
+                        val groupedKeys = allDbKeys.groupBy { Pair(it.examCode, it.setNumber) }
 
                         groupedKeys.forEach { (pair, keys) ->
                             val examCode = pair.first
                             val setNum = pair.second
+
+                            // Get standard elements AND 99 if applicable to maintain CSV format
                             val requiredTestNums = ExamConfigurations.getTestNumbersForTestType(examCode)
 
                             val rowData = mutableListOf<String>()
                             rowData.add(examCode)
                             rowData.add(setNum.toString())
 
-                            // Append answer strings exactly in the order the importer expects them
                             requiredTestNums.forEach { tNum ->
                                 val ansStr = keys.find { it.testNumber == tNum }?.answerString ?: ""
                                 rowData.add(ansStr)

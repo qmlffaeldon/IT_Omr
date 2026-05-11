@@ -96,27 +96,37 @@
         android:layout_height="wrap_content"
         android:layout_margin="16dp"
         android:orientation="horizontal"
-        android:weightSum="2"
+        android:weightSum="3"
         app:layout_constraintBottom_toBottomOf="parent">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnImport"
+            android:layout_width="0dp"
+            android:layout_height="55dp"
+            android:layout_marginEnd="4dp"
+            android:layout_weight="1"
+            android:text="Import"
+            app:backgroundTint="#515CB3"
+            app:cornerRadius="8dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnExportCsv"
             android:layout_width="0dp"
             android:layout_height="55dp"
-            android:layout_marginEnd="8dp"
+            android:layout_marginHorizontal="4dp"
             android:layout_weight="1"
             android:text="Export CSV"
-            app:backgroundTint="#375623"
+            app:backgroundTint="#BF8F00"
             app:cornerRadius="8dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSave"
             android:layout_width="0dp"
             android:layout_height="55dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="4dp"
             android:layout_weight="1"
             android:text="Save to DB"
-            app:backgroundTint="#BF8F00"
+            app:backgroundTint="#375623"
             app:cornerRadius="8dp" />
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>

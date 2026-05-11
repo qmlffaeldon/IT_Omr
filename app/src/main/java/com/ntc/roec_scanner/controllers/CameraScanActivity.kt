@@ -1260,7 +1260,6 @@ class CameraScanActivity : AppCompatActivity() {
                     context = this,
                     onResult = {},
 
-                    // --- NEW: AUTO CAPTURE LISTENER ---
                     onScanFeedback = { feedback ->
                         runOnUiThread {
                             val overlay = findViewById<DocumentOverlayView>(R.id.overlayView)
@@ -1279,7 +1278,7 @@ class CameraScanActivity : AppCompatActivity() {
                             if (canAutoCapture) {
                                 if (autoCaptureJob == null) {
                                     autoCaptureJob = lifecycleScope.launch {
-                                        delay(2000)
+                                        delay(1000)
                                         // Final check immediately before trigger
                                         if (switchAutoCapture.isChecked && hasWindowFocus() && loadingOverlay.visibility != View.VISIBLE && !isProcessingCapture) {
                                             captureBtn.performClick()
