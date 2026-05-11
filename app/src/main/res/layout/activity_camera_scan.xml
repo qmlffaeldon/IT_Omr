@@ -152,6 +152,18 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
 
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/switch_auto_capture"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Auto Capture"
+        android:textColor="@android:color/white"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@id/btn_back"
+        app:layout_constraintEnd_toStartOf="@id/btn_manual_absent"
+        app:layout_constraintStart_toEndOf="@id/btn_back"
+        app:layout_constraintTop_toTopOf="@id/btn_back" />
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_manual_absent"
         android:layout_width="50dp"

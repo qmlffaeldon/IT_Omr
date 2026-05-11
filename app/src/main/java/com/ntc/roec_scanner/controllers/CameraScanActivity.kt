@@ -37,6 +37,7 @@ import androidx.core.graphics.toColorInt
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.datepicker.MaterialDatePicker
+import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textview.MaterialTextView
 import com.ntc.roec_scanner.R
 import com.ntc.roec_scanner.database.AppDatabase
@@ -49,6 +50,7 @@ import com.ntc.roec_scanner.modules.QRCodeData
 import com.ntc.roec_scanner.modules.ValidationFailReason
 import com.ntc.roec_scanner.modules.analyzeImageFile
 import com.ntc.roec_scanner.utils.showManualAbsenteeDialog
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.invoke
 import kotlinx.coroutines.launch
@@ -63,9 +65,14 @@ class CameraScanActivity : AppCompatActivity() {
     private lateinit var bottomCard: CardView
     private lateinit var loadingOverlay: View
     private lateinit var loadingText: MaterialTextView
+    private lateinit var switchAutoCapture: MaterialSwitch
 
     private var lastScannedExamCode: String = "UNKNOWN"
     private var lastScannedSetNumber: Int = 1
+
+    // --- NEW: AUTO CAPTURE STATES ---
+    private var autoCaptureJob: Job? = null
+    private var isProcessingCapture = false
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,21 +80,23 @@ class CameraScanActivity : AppCompatActivity() {
         setContentView(R.layout.activity_camera_scan)
 
         previewView = findViewById(R.id.previewView)
-        //previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
         loadingOverlay = findViewById(R.id.loadingOverlay)
         loadingText = findViewById(R.id.loadingText)
+        switchAutoCapture = findViewById(R.id.switch_auto_capture)
 
         // Init OpenCV
         OpenCVLoader.initDebug()
 
-        // Setup your Capture Button from your layout
         val captureButton = findViewById<ImageButton>(R.id.btn_capture)
-        // 1. Updated Capture Button Logic
         captureButton.setOnClickListener {
+            // Lock captures to prevent duplicate triggers
+            if (isProcessingCapture) return@setOnClickListener
+            isProcessingCapture = true
+
             if (currentFlashMode == FlashMode.CAPTURE_ONLY) {
                 lifecycleScope.launch {
                     camera?.cameraControl?.enableTorch(true)
-                    delay(1000) // Give sensor 1 second to adjust exposure to the flash
+                    delay(1000)
                     takePhoto()
                 }
             } else {
@@ -110,6 +119,7 @@ class CameraScanActivity : AppCompatActivity() {
 
         val uploadBtn = findViewById<ImageButton>(R.id.btn_upload)
         uploadBtn.setOnClickListener {
+            isProcessingCapture = true
             galleryLauncher.launch("image/*")
         }
 
@@ -117,7 +127,6 @@ class CameraScanActivity : AppCompatActivity() {
         bottomCard = findViewById(R.id.cardBottomPopup)
 
         val flashBtn = findViewById<ImageButton>(R.id.btn_flash)
-        // 2. Updated Flash Button Touch Listener
         flashBtn.setOnTouchListener { view, event ->
             if (camera != null && camera!!.cameraInfo.hasFlashUnit()) {
                 when (event.action) {
@@ -136,7 +145,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         flashHoldJob?.let {
-                            it.cancel() // Cancel the 1.5s timer if they let go early
+                            it.cancel()
                             if (currentFlashMode == FlashMode.CAPTURE_ONLY) {
                                 setFlashMode(FlashMode.OFF)
                             } else {
@@ -167,7 +176,6 @@ class CameraScanActivity : AppCompatActivity() {
                     try {
                         val db = AppDatabase.getDatabase(this@CameraScanActivity)
 
-                        // Loop through the list and save each as an absent entity
                         for (seat in absenteesList) {
                             val absentResult = ExamResultsEntity(
                                 examCode = lastScannedExamCode,
@@ -179,11 +187,11 @@ class CameraScanActivity : AppCompatActivity() {
                             db.answerKeyDao().insertExamResult(absentResult)
                         }
 
-                        // Show Success Feedback
                         AlertDialog.Builder(this@CameraScanActivity)
                             .setTitle("Absentees Saved ✓")
                             .setMessage("${absenteesList.size} absentees saved for $lastScannedExamCode (Set $lastScannedSetNumber).\n\nSeats: $absenteesList")
                             .setPositiveButton("OK", null)
+                            .setOnDismissListener { isProcessingCapture = false }
                             .show()
 
                     } catch (e: Exception) {
@@ -192,6 +200,7 @@ class CameraScanActivity : AppCompatActivity() {
                             .setTitle("Save Failed")
                             .setMessage("Could not save absentees: ${e.message}")
                             .setPositiveButton("OK", null)
+                            .setOnDismissListener { isProcessingCapture = false }
                             .show()
                     }
                 }
@@ -199,7 +208,6 @@ class CameraScanActivity : AppCompatActivity() {
         }
     }
 
-    // Fade out animation via alpha manipulation (3 secs duration)
     private fun fadeOutViews(vararg views: View) {
         views.forEach { view ->
             ObjectAnimator.ofFloat(view, "alpha", 1f, 0f).apply {
@@ -227,7 +235,6 @@ class CameraScanActivity : AppCompatActivity() {
             loadingOverlay.visibility = View.VISIBLE
             loadingOverlay.isClickable = true
             loadingOverlay.isFocusable = true
-            // Optionally disable buttons explicitly
             findViewById<ImageButton>(R.id.btn_capture).isEnabled = false
             findViewById<ImageButton>(R.id.btn_upload).isEnabled = false
             findViewById<ImageButton>(R.id.btn_flash).isEnabled = false
@@ -247,144 +254,131 @@ class CameraScanActivity : AppCompatActivity() {
     private val galleryLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
     ) { savedUri: Uri? ->
-        if (savedUri != null) {
-            if (!OpenCVLoader.initDebug()) {
-                Log.e("OMR", "OpenCV initialization failed!")
-                return@registerForActivityResult
-            } else {
-                Log.d("OMR", "OpenCV loaded successfully")
-            }
+        if (savedUri == null) {
+            isProcessingCapture = false
+            return@registerForActivityResult
+        }
 
-            Thread {
-                try {
-                    showLoading("Processing The exam…")
+        if (!OpenCVLoader.initDebug()) {
+            Log.e("OMR", "OpenCV initialization failed!")
+            isProcessingCapture = false
+            return@registerForActivityResult
+        } else {
+            Log.d("OMR", "OpenCV loaded successfully")
+        }
 
-                    analyzeImageFile(
-                        context = this,
-                        imageUri = savedUri,
-                        onProgress = { msg -> updateLoadingText(msg) },
-                        onDetected = { result ->
+        Thread {
+            try {
+                showLoading("Processing The exam…")
+
+                analyzeImageFile(
+                    context = this,
+                    imageUri = savedUri,
+                    onProgress = { msg -> updateLoadingText(msg) },
+                    onDetected = { result ->
+                        hideLoading()
+                        onAnswersDetected(
+                            result.answers,
+                            result.qrData,
+                            result.debugBitmap,
+                            result.correctAnswersMap,
+                            result.originalBitmap,
+                            result.corners
+                        )
+                    },
+                    onValidationError = { validation ->
+                        runOnUiThread {
                             hideLoading()
-                            onAnswersDetected(
-                                result.answers,
-                                result.qrData,
-                                result.debugBitmap,
-                                result.correctAnswersMap,
-                                result.originalBitmap,
-                                result.corners
-                            )
-                        },
-                        onValidationError = { validation ->
-                            runOnUiThread {
-                                hideLoading()
-                                when (validation.failReason) {
-                                    ValidationFailReason.NO_SHEET,
-                                    ValidationFailReason.TOO_FEW -> {
-                                        AlertDialog.Builder(this)
-                                            .setTitle("Invalid Sheet")
-                                            .setMessage(validation.reason)
-                                            .setPositiveButton("OK", null)
-                                            .show()
-                                    }
-
-                                    ValidationFailReason.BLANK -> {
-                                        // Same absent dialog as camera path
-                                        AlertDialog.Builder(this)
-                                            .setTitle("Blank Answer Sheet")
-                                            .setMessage("No answers detected.\n\nIs this examinee absent?")
-                                            .setPositiveButton("Yes, Mark Absent") { _, _ ->
-                                                lifecycleScope.launch {
-                                                    try {
-                                                        val db =
-                                                            AppDatabase.getDatabase(this@CameraScanActivity)
-                                                        val absentResult = ExamResultsEntity(
-                                                            examCode = validation.qrData?.testType
-                                                                ?: "UNKNOWN",
-                                                            setNumber = validation.qrData?.setNumber
-                                                                ?: 1,
-                                                            seatNumber = validation.qrData?.seatNumber
-                                                                ?: 1,
-                                                            totalScore = 0,
-                                                            isAbsent = true
-                                                        )
-                                                        db.answerKeyDao()
-                                                            .insertExamResult(absentResult)
-                                                    } catch (e: Exception) {
-                                                        Log.e(
-                                                            "OMR",
-                                                            "Failed to save absent result",
-                                                            e
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                            .setNegativeButton("No, Re-scan", null)
-                                            .setCancelable(false)
-                                            .show()
-                                    }
-
-                                    ValidationFailReason.NO_QR -> {
-                                        // 1. Create a scrollable view container
-                                        val scrollView = android.widget.ScrollView(this@CameraScanActivity)
-                                        val layout = android.widget.LinearLayout(this@CameraScanActivity).apply {
-                                            orientation = android.widget.LinearLayout.VERTICAL
-                                            setPadding(48, 24, 48, 24)
-                                        }
-
-                                        // 2. Add the explanation text
-                                        val tvMsg = android.widget.TextView(this@CameraScanActivity).apply {
-                                            text = "A valid QR code couldn't be found. Here is what the scanner saw:"
-                                            textSize = 14f
-                                            setTextColor(android.graphics.Color.BLACK)
-                                            setPadding(0, 0, 0, 32)
-                                        }
-                                        layout.addView(tvMsg)
-
-                                        // 3. Add the debug image if it exists
-                                        if (validation.debugBitmap != null) {
-                                            val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
-                                                adjustViewBounds = true
-                                                setImageBitmap(validation.debugBitmap)
-                                            }
-                                            layout.addView(imageView)
-                                        }
-
-                                        scrollView.addView(layout)
-
-                                        // 4. Show the updated Dialog
-                                        AlertDialog.Builder(this@CameraScanActivity)
-                                            .setTitle("QR Code Error")
-                                            .setView(scrollView) // Use the custom layout with the image
-                                            .setPositiveButton("Broken/No QR") { _, _ ->
-                                                showManualQrDialog(savedUri)
-                                            }
-                                            .setNegativeButton("Rescan", null)
-                                            .setCancelable(false)
-                                            .show()
-                                    }
-
-                                    ValidationFailReason.VALID -> {}
+                            when (validation.failReason) {
+                                ValidationFailReason.NO_SHEET, ValidationFailReason.TOO_FEW -> {
+                                    AlertDialog.Builder(this)
+                                        .setTitle("Invalid Sheet")
+                                        .setMessage(validation.reason)
+                                        .setPositiveButton("OK", null)
+                                        .setOnDismissListener { isProcessingCapture = false }
+                                        .show()
                                 }
+
+                                ValidationFailReason.BLANK -> {
+                                    AlertDialog.Builder(this)
+                                        .setTitle("Blank Answer Sheet")
+                                        .setMessage("No answers detected.\n\nIs this examinee absent?")
+                                        .setPositiveButton("Yes, Mark Absent") { _, _ ->
+                                            lifecycleScope.launch {
+                                                try {
+                                                    val db = AppDatabase.getDatabase(this@CameraScanActivity)
+                                                    val absentResult = ExamResultsEntity(
+                                                        examCode = validation.qrData?.testType ?: "UNKNOWN",
+                                                        setNumber = validation.qrData?.setNumber ?: 1,
+                                                        seatNumber = validation.qrData?.seatNumber ?: 1,
+                                                        totalScore = 0,
+                                                        isAbsent = true
+                                                    )
+                                                    db.answerKeyDao().insertExamResult(absentResult)
+                                                } catch (e: Exception) { Log.e("OMR", "Failed to save absent result", e) }
+                                            }
+                                        }
+                                        .setNegativeButton("No, Re-scan", null)
+                                        .setCancelable(false)
+                                        .setOnDismissListener { isProcessingCapture = false }
+                                        .show()
+                                }
+
+                                ValidationFailReason.NO_QR -> {
+                                    val scrollView = android.widget.ScrollView(this@CameraScanActivity)
+                                    val layout = android.widget.LinearLayout(this@CameraScanActivity).apply {
+                                        orientation = android.widget.LinearLayout.VERTICAL
+                                        setPadding(48, 24, 48, 24)
+                                    }
+
+                                    val tvMsg = android.widget.TextView(this@CameraScanActivity).apply {
+                                        text = "A valid QR code couldn't be found. Here is what the scanner saw:"
+                                        textSize = 14f
+                                        setTextColor(android.graphics.Color.BLACK)
+                                        setPadding(0, 0, 0, 32)
+                                    }
+                                    layout.addView(tvMsg)
+
+                                    if (validation.debugBitmap != null) {
+                                        val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
+                                            adjustViewBounds = true
+                                            setImageBitmap(validation.debugBitmap)
+                                        }
+                                        layout.addView(imageView)
+                                    }
+
+                                    scrollView.addView(layout)
+
+                                    AlertDialog.Builder(this@CameraScanActivity)
+                                        .setTitle("QR Code Error")
+                                        .setView(scrollView)
+                                        .setPositiveButton("Broken/No QR") { _, _ ->
+                                            showManualQrDialog(savedUri)
+                                        }
+                                        .setNegativeButton("Rescan", null)
+                                        .setCancelable(false)
+                                        .setOnDismissListener { isProcessingCapture = false }
+                                        .show()
+                                }
+                                ValidationFailReason.VALID -> {}
                             }
                         }
-                    )
-                } catch (e: Exception) {
-                    Log.e("OMR", "Error analyzing gallery image", e)
-                    hideLoading()
-                }
-            }.start()
-            Log.d("OMR", "Image selected from gallery: $savedUri")
-
-
-        }
+                    }
+                )
+            } catch (e: Exception) {
+                Log.e("OMR", "Error analyzing gallery image", e)
+                hideLoading()
+                isProcessingCapture = false
+            }
+        }.start()
     }
+
     private lateinit var previewView: PreviewView
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private val answerKeyDao by lazy {
         AppDatabase.getDatabase(this).answerKeyDao()
     }
 
-    // Change signature
     fun onAnswersDetected(
         detectedAnswers: List<DetectedAnswer>,
         qrData: QRCodeData?,
@@ -401,22 +395,17 @@ class CameraScanActivity : AppCompatActivity() {
             lastScannedExamCode = examCode
             lastScannedSetNumber = setNumber
 
-            // Grade standard bubble elements first
             val standardScores = compareWithAnswerKey(detectedAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
 
-            // Check if we need to pause and ask for the Code score
             if (examCode == "TYPEA-080910COD" || examCode == "MORSE-CODE") {
                 showManualCodeEntryDialog(examCode, seatNumber) { codeScore, completeRow ->
-                    // Add the manual code score to the map as Element 99
                     standardScores[99] = codeScore
-
                     saveAndDisplayResults(
                         examCode, setNumber, seatNumber, standardScores, completeRow,
                         detectedAnswers, qrData, cleanBitmap, correctAnswersMap, originalBitmap, corners
                     )
                 }
             } else {
-                // Normal exam, proceed directly
                 saveAndDisplayResults(
                     examCode, setNumber, seatNumber, standardScores, "",
                     detectedAnswers, qrData, cleanBitmap, correctAnswersMap, originalBitmap, corners
@@ -461,7 +450,8 @@ class CameraScanActivity : AppCompatActivity() {
             .setMessage("Please enter the manually graded score for the Code section (Seat $seatNumber).")
             .setView(layout)
             .setCancelable(false)
-            .setPositiveButton("Proceed", null) // Handled below to prevent auto-close on error
+            .setPositiveButton("Proceed", null)
+            .setOnDismissListener { isProcessingCapture = false }
             .create()
 
         dialog.setOnShowListener {
@@ -499,7 +489,6 @@ class CameraScanActivity : AppCompatActivity() {
         originalBitmap: android.graphics.Bitmap?,
         corners: List<org.opencv.core.Point>?
     ) {
-        // --- GLOBAL STATE VARIABLES ---
         var currentExamCode = examCode
         var currentSetNumber = setNumber
         var currentSeatNumber = seatNumber
@@ -535,9 +524,6 @@ class CameraScanActivity : AppCompatActivity() {
                 }
                 db.answerKeyDao().upsertElementScores(elementScores)
 
-                // ==========================================
-                // EXCEL-STYLE UI BUILDER
-                // ==========================================
                 val darkRed = Color.parseColor("#C00000")
                 val lightGray = Color.parseColor("#EFEFEF")
 
@@ -666,7 +652,7 @@ class CameraScanActivity : AppCompatActivity() {
                     val row7to11 = android.widget.LinearLayout(this@CameraScanActivity).apply {
                         orientation = android.widget.LinearLayout.HORIZONTAL
                         weightSum = 4f
-                        minimumHeight = dp(80) // <-- FIX: Ensures Average section is never squished on single-element exams
+                        minimumHeight = dp(80)
                         layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
                     }
 
@@ -922,6 +908,7 @@ class CameraScanActivity : AppCompatActivity() {
                     .setView(scrollView)
                     .setPositiveButton("Save", null)
                     .setNegativeButton("Edit", null)
+                    .setOnDismissListener { isProcessingCapture = false }
                     .create()
 
                 dialog.setOnShowListener {
@@ -942,7 +929,7 @@ class CameraScanActivity : AppCompatActivity() {
                         }
 
                         val dp = { value: Int -> (value * resources.displayMetrics.density).toInt() }
-                        val inputHeight = dp(50) // <-- FIX: Strict consistent height across all inputs
+                        val inputHeight = dp(50)
 
                         fun getOutlineBackground(): android.graphics.drawable.GradientDrawable {
                             return android.graphics.drawable.GradientDrawable().apply {
@@ -953,7 +940,6 @@ class CameraScanActivity : AppCompatActivity() {
                             }
                         }
 
-                        // Exam Type Input
                         editLayout.addView(android.widget.TextView(this@CameraScanActivity).apply {
                             text = "Exam Type"
                             setTypeface(null, android.graphics.Typeface.BOLD)
@@ -980,7 +966,6 @@ class CameraScanActivity : AppCompatActivity() {
                             }
                         }
 
-                        // Set Number
                         val leftCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
                             orientation = android.widget.LinearLayout.VERTICAL
                             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(0, 0, dp(8), 0) }
@@ -1004,7 +989,6 @@ class CameraScanActivity : AppCompatActivity() {
                         leftCol.addView(spSet)
                         rowLayout.addView(leftCol)
 
-                        // Seat Number
                         val rightCol = android.widget.LinearLayout(this@CameraScanActivity).apply {
                             orientation = android.widget.LinearLayout.VERTICAL
                             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(8), 0, 0, 0) }
@@ -1029,7 +1013,6 @@ class CameraScanActivity : AppCompatActivity() {
 
                         editLayout.addView(rowLayout)
 
-                        // --- Dynamic Code Inputs ---
                         val codeInputContainer = android.widget.LinearLayout(this@CameraScanActivity).apply {
                             orientation = android.widget.LinearLayout.VERTICAL
                             layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -1191,6 +1174,7 @@ class CameraScanActivity : AppCompatActivity() {
                     .setTitle("Save Failed")
                     .setMessage("Results could not be saved: ${e.message}")
                     .setPositiveButton("OK", null)
+                    .setOnDismissListener { isProcessingCapture = false }
                     .show()
             }
         }
@@ -1234,7 +1218,6 @@ class CameraScanActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Reset flash state to default when app goes to Home/Recents
         if (currentFlashMode != FlashMode.OFF) {
             setFlashMode(FlashMode.OFF)
         }
@@ -1246,7 +1229,6 @@ class CameraScanActivity : AppCompatActivity() {
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-            // 1. Resolution / Aspect Ratio Strategy
             val resolutionSelector = ResolutionSelector.Builder()
                 .setAspectRatioStrategy(
                     AspectRatioStrategy(
@@ -1256,7 +1238,6 @@ class CameraScanActivity : AppCompatActivity() {
                 )
                 .build()
 
-            // 2. Preview Use Case
             val preview = Preview.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .build()
@@ -1264,44 +1245,57 @@ class CameraScanActivity : AppCompatActivity() {
                     it.surfaceProvider = previewView.surfaceProvider
                 }
 
-            // 3. ImageCapture Use Case
             imageCapture = ImageCapture.Builder()
                 .setResolutionSelector(resolutionSelector)
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .build()
 
             val imageAnalysis = ImageAnalysis.Builder()
-                .setResolutionSelector(resolutionSelector) // Match Preview/Capture ratio
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST) // "Real-time" mode
+                .setResolutionSelector(resolutionSelector)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
             imageAnalysis.setAnalyzer(
                 cameraExecutor, CameraAnalyzer(
                     context = this,
-
-                    // Standard OMR Result (Final scan when button is clicked or auto-scan)
                     onResult = {},
 
-                    // NEW: Visual Feedback (Draws the Red/Green Box)
+                    // --- NEW: AUTO CAPTURE LISTENER ---
                     onScanFeedback = { feedback ->
                         runOnUiThread {
                             val overlay = findViewById<DocumentOverlayView>(R.id.overlayView)
                             overlay?.updateCorners(feedback.corners, feedback.isSkewed)
 
                             val captureBtn = findViewById<ImageButton>(R.id.btn_capture)
-                            val ready = overlay?.hasValidDocument == true
+                            // Lock the button state if we are currently capturing
+                            val ready = overlay?.hasValidDocument == true && !isProcessingCapture
                             captureBtn.isEnabled = ready
                             captureBtn.alpha = if (ready) 1f else 0.4f
+
+                            // Verify all auto-capture conditions:
+                            // Switch ON, Valid scan, App has focus (no dialogs open), Loading overlay hidden
+                            val canAutoCapture = ready && switchAutoCapture.isChecked && hasWindowFocus() && loadingOverlay.visibility != View.VISIBLE
+
+                            if (canAutoCapture) {
+                                if (autoCaptureJob == null) {
+                                    autoCaptureJob = lifecycleScope.launch {
+                                        delay(2000)
+                                        // Final check immediately before trigger
+                                        if (switchAutoCapture.isChecked && hasWindowFocus() && loadingOverlay.visibility != View.VISIBLE && !isProcessingCapture) {
+                                            captureBtn.performClick()
+                                        }
+                                    }
+                                }
+                            } else {
+                                autoCaptureJob?.cancel()
+                                autoCaptureJob = null
+                            }
                         }
                     },
-
                     isPreviewMode = true
-
-
                 ))
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
             cameraProvider.unbindAll()
 
             camera = cameraProvider.bindToLifecycle(
@@ -1312,24 +1306,16 @@ class CameraScanActivity : AppCompatActivity() {
                 imageAnalysis
             )
             previewView.setOnTouchListener { view, event ->
-
                 if (event.action == MotionEvent.ACTION_UP) {
-
                     view.performClick()
-
                     val factory = previewView.meteringPointFactory
                     val point = factory.createPoint(event.x, event.y)
-
                     val action = FocusMeteringAction.Builder(
                         point,
                         FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
-                    )
-                        .setAutoCancelDuration(1, TimeUnit.SECONDS)
-                        .build()
-
+                    ).setAutoCancelDuration(1, TimeUnit.SECONDS).build()
                     camera?.cameraControl?.startFocusAndMetering(action)
                 }
-
                 true
             }
 
@@ -1346,15 +1332,9 @@ class CameraScanActivity : AppCompatActivity() {
         val imageCapture = imageCapture ?: return
 
         val contentValues = ContentValues().apply {
-            put(
-                MediaStore.MediaColumns.DISPLAY_NAME,
-                "${System.currentTimeMillis()}.jpg"
-            )
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "${System.currentTimeMillis()}.jpg")
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            put(
-                MediaStore.MediaColumns.RELATIVE_PATH,
-                "Android/media/$packageName/${getString(R.string.app_name)}"
-            )
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Android/media/$packageName/${getString(R.string.app_name)}")
         }
 
         val outputOptions = ImageCapture.OutputFileOptions.Builder(
@@ -1368,10 +1348,7 @@ class CameraScanActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
 
-                override fun onImageSaved(
-                    outputFileResults: ImageCapture.OutputFileResults
-                ) {
-                    // FORCE THE FLASH OFF IMMEDIATELY ON THE UI THREAD
+                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                     runOnUiThread {
                         if (currentFlashMode == FlashMode.CAPTURE_ONLY) {
                             camera?.cameraControl?.enableTorch(false)
@@ -1381,6 +1358,7 @@ class CameraScanActivity : AppCompatActivity() {
                     val savedUri = outputFileResults.savedUri
                     if (savedUri == null) {
                         Log.e("CameraX", "Saved URI is null")
+                        isProcessingCapture = false
                         return
                     }
 
@@ -1388,6 +1366,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                     if (!OpenCVLoader.initDebug()) {
                         Log.e("OMR", "OpenCV initialization failed!")
+                        isProcessingCapture = false
                         return
                     } else {
                         Log.d("OMR", "OpenCV loaded successfully")
@@ -1395,9 +1374,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                     Thread {
                         try {
-                            runOnUiThread {
-                                showLoading("Processing The exam…")
-                            }
+                            runOnUiThread { showLoading("Processing The exam…") }
 
                             analyzeImageFile(
                                 context = this@CameraScanActivity,
@@ -1411,8 +1388,8 @@ class CameraScanActivity : AppCompatActivity() {
                                             result.qrData,
                                             result.debugBitmap,
                                             result.correctAnswersMap,
-                                            result.originalBitmap,    // <-- Pass it here
-                                            result.corners            // <-- Pass it here
+                                            result.originalBitmap,
+                                            result.corners
                                         )
                                     }
                                 },
@@ -1420,13 +1397,13 @@ class CameraScanActivity : AppCompatActivity() {
                                     runOnUiThread {
                                         hideLoading()
                                         when (validation.failReason) {
-
                                             ValidationFailReason.NO_SHEET -> {
                                                 AlertDialog.Builder(this@CameraScanActivity)
                                                     .setTitle("Sheet Not Found")
                                                     .setMessage("No answer sheet detected. Please reposition and try again.")
                                                     .setPositiveButton("OK", null)
                                                     .setCancelable(false)
+                                                    .setOnDismissListener { isProcessingCapture = false }
                                                     .show()
                                             }
 
@@ -1437,89 +1414,65 @@ class CameraScanActivity : AppCompatActivity() {
                                                     .setPositiveButton("Yes, Mark Absent") { _, _ ->
                                                         lifecycleScope.launch {
                                                             try {
-                                                                val db =
-                                                                    AppDatabase.getDatabase(
-                                                                        this@CameraScanActivity
-                                                                    )
+                                                                val db = AppDatabase.getDatabase(this@CameraScanActivity)
+                                                                val examCode = validation.qrData?.testType ?: "UNKNOWN"
+                                                                val setNumber = validation.qrData?.setNumber ?: 1
+                                                                val seatNumber = validation.qrData?.seatNumber ?: 1
 
-                                                                // Fall back to safe defaults if QR wasn't readable
-                                                                val examCode =
-                                                                    validation.qrData?.testType
-                                                                        ?: "UNKNOWN"
-                                                                val setNumber =
-                                                                    validation.qrData?.setNumber
-                                                                        ?: 1
-                                                                val seatNumber =
-                                                                    validation.qrData?.seatNumber
-                                                                        ?: 1
+                                                                val absentResult = ExamResultsEntity(
+                                                                    examCode = examCode,
+                                                                    setNumber = setNumber,
+                                                                    seatNumber = seatNumber,
+                                                                    totalScore = 0,
+                                                                    isAbsent = true
+                                                                )
+                                                                db.answerKeyDao().insertExamResult(absentResult)
 
-                                                                val absentResult =
-                                                                    ExamResultsEntity(
-                                                                        examCode = examCode,
-                                                                        setNumber = setNumber,
-                                                                        seatNumber = seatNumber,
-                                                                        totalScore = 0,
-                                                                        isAbsent = true
-                                                                    )
-                                                                db.answerKeyDao()
-                                                                    .insertExamResult(absentResult)
-                                                                // No ElementScoreEntity rows — absent students have none
-
-                                                                // Show confirmation then show the same top card feedback
                                                                 AlertDialog.Builder(this@CameraScanActivity)
                                                                     .setTitle("Marked Absent ✓")
                                                                     .setMessage("Seat $seatNumber has been marked absent.")
                                                                     .setPositiveButton("OK", null)
+                                                                    .setOnDismissListener { isProcessingCapture = false }
                                                                     .show()
 
                                                                 topCard.alpha = 1f
                                                                 topCard.visibility = View.VISIBLE
-                                                                topCard.postDelayed({
-                                                                    fadeOutViews(
-                                                                        topCard
-                                                                    )
-                                                                }, 3000)
+                                                                topCard.postDelayed({ fadeOutViews(topCard) }, 3000)
 
                                                             } catch (e: Exception) {
-                                                                Log.e(
-                                                                    "OMR",
-                                                                    "Failed to save absent result",
-                                                                    e
-                                                                )
+                                                                Log.e("OMR", "Failed to save absent result", e)
                                                                 AlertDialog.Builder(this@CameraScanActivity)
                                                                     .setTitle("Save Failed")
                                                                     .setMessage("Could not mark as absent: ${e.message}")
                                                                     .setPositiveButton("OK", null)
+                                                                    .setOnDismissListener { isProcessingCapture = false }
                                                                     .show()
                                                             }
                                                         }
                                                     }
                                                     .setNegativeButton("No, Re-scan", null)
                                                     .setCancelable(false)
+                                                    .setOnDismissListener { isProcessingCapture = false }
                                                     .show()
                                             }
 
                                             ValidationFailReason.TOO_FEW -> {
                                                 AlertDialog.Builder(this@CameraScanActivity)
                                                     .setTitle("Poor Scan Quality")
-                                                    .setMessage(
-                                                        "Only ${validation.filledBubbleCount} answer(s) detected.\n\n" +
-                                                                "Please reposition the sheet and try again."
-                                                    )
+                                                    .setMessage("Only ${validation.filledBubbleCount} answer(s) detected.\n\nPlease reposition the sheet and try again.")
                                                     .setPositiveButton("Re-scan", null)
                                                     .setCancelable(false)
+                                                    .setOnDismissListener { isProcessingCapture = false }
                                                     .show()
                                             }
 
                                             ValidationFailReason.NO_QR -> {
-                                                // 1. Create a scrollable view container
                                                 val scrollView = android.widget.ScrollView(this@CameraScanActivity)
                                                 val layout = android.widget.LinearLayout(this@CameraScanActivity).apply {
                                                     orientation = android.widget.LinearLayout.VERTICAL
                                                     setPadding(48, 24, 48, 24)
                                                 }
 
-                                                // 2. Add the explanation text
                                                 val tvMsg = android.widget.TextView(this@CameraScanActivity).apply {
                                                     text = "A valid QR code couldn't be found. Here is what the scanner saw:"
                                                     textSize = 14f
@@ -1528,7 +1481,6 @@ class CameraScanActivity : AppCompatActivity() {
                                                 }
                                                 layout.addView(tvMsg)
 
-                                                // 3. Add the debug image if it exists
                                                 if (validation.debugBitmap != null) {
                                                     val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
                                                         adjustViewBounds = true
@@ -1539,20 +1491,18 @@ class CameraScanActivity : AppCompatActivity() {
 
                                                 scrollView.addView(layout)
 
-                                                // 4. Show the updated Dialog
                                                 AlertDialog.Builder(this@CameraScanActivity)
                                                     .setTitle("QR Code Error")
-                                                    .setView(scrollView) // Use the custom layout with the image
+                                                    .setView(scrollView)
                                                     .setPositiveButton("Broken/No QR") { _, _ ->
                                                         showManualQrDialog(savedUri)
                                                     }
                                                     .setNegativeButton("Rescan", null)
                                                     .setCancelable(false)
+                                                    .setOnDismissListener { isProcessingCapture = false }
                                                     .show()
                                             }
-
-                                            ValidationFailReason.VALID -> { /* won't reach here */
-                                            }
+                                            ValidationFailReason.VALID -> { }
                                         }
                                     }
                                 }
@@ -1560,23 +1510,19 @@ class CameraScanActivity : AppCompatActivity() {
                         } catch (e: Exception) {
                             Log.e("OMR", "Error analyzing camera image", e)
                             runOnUiThread { hideLoading() }
+                            isProcessingCapture = false
                         }
                     }.start()
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    // FORCE THE FLASH OFF ON ERROR AS WELL
                     runOnUiThread {
                         if (currentFlashMode == FlashMode.CAPTURE_ONLY) {
                             camera?.cameraControl?.enableTorch(false)
                         }
+                        isProcessingCapture = false
                     }
-
-                    Log.e(
-                        "CameraX",
-                        "Photo capture failed: ${exception.message}",
-                        exception
-                    )
+                    Log.e("CameraX", "Photo capture failed: ${exception.message}", exception)
                 }
             }
         )
@@ -1592,14 +1538,12 @@ class CameraScanActivity : AppCompatActivity() {
         val spRegion = dialogView.findViewById<android.widget.AutoCompleteTextView>(R.id.spRegion)
         val etPlace = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.etPlace)
 
-        // Populate dropdowns using your global arrays from ResultsActivity.kt
         etTestType.setAdapter(android.widget.ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, EXAM_TYPES))
         spRegion.setAdapter(android.widget.ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, REGIONS_DISPLAY))
         val setAdapter = android.widget.ArrayAdapter(this, R.layout.item_spinner_selected, SETS)
         setAdapter.setDropDownViewResource(R.layout.item_spinner_dropdown)
         spSet.adapter = setAdapter
 
-        // Setup DatePicker exactly like your ResultsActivity
         etExamDate.setOnClickListener {
             val datePicker = MaterialDatePicker.Builder.datePicker().setTitleText("Select Exam Date").build()
             datePicker.addOnPositiveButtonClickListener { selection ->
@@ -1612,9 +1556,10 @@ class CameraScanActivity : AppCompatActivity() {
         val dialog = AlertDialog.Builder(this)
             .setTitle("Manual Data Entry")
             .setView(dialogView)
-            .setPositiveButton("Proceed", null) // Handled below to prevent auto-close
+            .setPositiveButton("Proceed", null)
             .setNegativeButton("Cancel", null)
             .setCancelable(false)
+            .setOnDismissListener { isProcessingCapture = false }
             .create()
 
         dialog.setOnShowListener {
@@ -1622,11 +1567,9 @@ class CameraScanActivity : AppCompatActivity() {
                 val testType = etTestType.text.toString().trim()
                 val seatNum = etSeatNumber.text.toString().toIntOrNull()
 
-                // Extract the set number from the spinner
                 val setPos = spSet.selectedItemPosition
                 val setNum = if (setPos >= 0) SETS[setPos].toInt() else 1
 
-                // Map the selected Display Region back to its corresponding Code
                 val regionDisplay = spRegion.text.toString().trim()
                 val regionIndex = REGIONS_DISPLAY.indexOf(regionDisplay)
                 val regionCode = if (regionIndex > 0) REGIONS_CODE[regionIndex] else ""
@@ -1634,13 +1577,11 @@ class CameraScanActivity : AppCompatActivity() {
                 val date = etExamDate.text.toString().trim()
                 val place = etPlace.text.toString().trim()
 
-                // Validate requirements
                 if (testType.isEmpty() || seatNum == null) {
                     android.widget.Toast.makeText(this, "Test Type and Seat Number are required.", android.widget.Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
 
-                // Construct rawData format substituting regionCode instead of the display name
                 val rawDataString = "MANUAL,$testType,$setNum,$seatNum,$regionCode,$date,$place"
 
                 val manualQrData = QRCodeData(
@@ -1652,7 +1593,6 @@ class CameraScanActivity : AppCompatActivity() {
 
                 dialog.dismiss()
 
-                // Re-run the analysis with the manual data
                 Thread {
                     try {
                         runOnUiThread { showLoading("Processing manual entry…") }
@@ -1682,6 +1622,7 @@ class CameraScanActivity : AppCompatActivity() {
                                         .setTitle("Error")
                                         .setMessage(validation.reason)
                                         .setPositiveButton("OK", null)
+                                        .setOnDismissListener { isProcessingCapture = false }
                                         .show()
                                 }
                             }
@@ -1689,6 +1630,7 @@ class CameraScanActivity : AppCompatActivity() {
                     } catch (e: Exception) {
                         Log.e("OMR", "Error analyzing image with manual data", e)
                         runOnUiThread { hideLoading() }
+                        isProcessingCapture = false
                     }
                 }.start()
             }
