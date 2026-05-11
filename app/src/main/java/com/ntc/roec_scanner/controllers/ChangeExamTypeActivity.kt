@@ -9,7 +9,6 @@ import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.Spinner
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -34,7 +33,7 @@ class ChangeExamTypeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_change_exam)
+        setContentView(R.layout.activity_change_exam_type)
 
         rvChangeExam = findViewById(R.id.rvChangeExam)
         btnChange = findViewById(R.id.btnChange)
@@ -119,8 +118,9 @@ class ChangeExamTypeActivity : AppCompatActivity() {
                     db.answerKeyDao().deleteElementsForExam(exam.id)
                 }
             }
-            Toast.makeText(this@ChangeExamTypeActivity, "Changes saved successfully", Toast.LENGTH_SHORT).show()
-            finish() // Goes back to ResultsActivity
+
+            setResult(RESULT_OK)
+            finish() // Instant close
         }
     }
 }

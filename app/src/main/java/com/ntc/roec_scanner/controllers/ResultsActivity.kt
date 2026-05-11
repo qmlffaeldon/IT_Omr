@@ -1,6 +1,8 @@
 package com.ntc.roec_scanner.controllers
 
+import android.app.Activity
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
@@ -17,14 +19,15 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.graphics.toColorInt
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.snackbar.Snackbar
 import com.ntc.roec_scanner.R
 import com.ntc.roec_scanner.database.AppDatabase
 import com.ntc.roec_scanner.database.ElementScoreEntity
@@ -35,7 +38,6 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import androidx.core.graphics.toColorInt
 
 val REGIONS_DISPLAY = arrayOf(
     "[ Please select a region ]",
@@ -117,6 +119,15 @@ fun getFriendlyExamName(examCode: String): String = when (examCode) {
     else -> "Exam Type: $examCode"
 }
 
+// Global helper for customized Snackbars
+fun showCustomSnackbar(view: View, message: String) {
+    val snackbar = Snackbar.make(view, message, 3000)
+    snackbar.setAction("Close") {
+        snackbar.dismiss()
+    }
+    snackbar.show()
+}
+
 sealed class ResultListItem {
     data class Header(val examType: String, val elements: List<Int>) : ResultListItem()
     data class Row(val exam: ExamWithElements, val elements: List<Int>) : ResultListItem()
@@ -131,6 +142,15 @@ class ResultsActivity : AppCompatActivity() {
     private lateinit var tvNoData: TextView
     private lateinit var adapter: ResultsAdapter
     private var isFabExpanded = false
+
+    private val changeExamLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val rootView = findViewById<View>(android.R.id.content)
+            showCustomSnackbar(rootView, "Changes saved successfully")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -153,7 +173,7 @@ class ResultsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        loadData() // Refresh in case we came back from ChangeExamTypeActivity
+        loadData()
     }
 
     private fun setupRegionDropdown() {
@@ -197,17 +217,14 @@ class ResultsActivity : AppCompatActivity() {
             if (regionIndex != -1) spRegion.setText(REGIONS_DISPLAY[regionIndex], false)
             else spRegion.setText(REGIONS_DISPLAY[0], false)
 
-            // SORTED ALPHABETICALLY/NUMERICALLY BY SEAT NUMBER BEFORE GROUPING
             val sortedExams = exams.sortedBy { it.exam.seatNumber }
             val grouped = sortedExams.groupBy { it.exam.examCode }
 
             val listItems = mutableListOf<ResultListItem>()
 
             for ((examCode, group) in grouped) {
-                // Get the base graded elements (1, 2, 3... and 99 for Code)
                 val baseElements = ExamConfigurations.getTestNumbersForTestType(examCode)
 
-                // Artificially append 98 for the UI to draw the CompleteRow checkbox
                 val expectedElements =
                     if (examCode == "TYPEA-080910COD" || examCode == "MORSE-CODE") {
                         baseElements + listOf(98)
@@ -224,6 +241,36 @@ class ResultsActivity : AppCompatActivity() {
         }
     }
 
+    private suspend fun saveAllDataToDb() {
+        val date = etExamDate.text.toString()
+        val regionDisplay = spRegion.text.toString()
+        val regionIndex = REGIONS_DISPLAY.indexOf(regionDisplay)
+        val regionCode = if (regionIndex > 0) REGIONS_CODE[regionIndex] else ""
+        val place = etPlace.text.toString()
+
+        val db = AppDatabase.getDatabase(this@ResultsActivity)
+
+        for (item in adapter.getItems()) {
+            if (item is ResultListItem.Row) {
+                item.exam.exam.examDate = date
+                item.exam.exam.region = regionCode
+                item.exam.exam.placeOfExam = place
+
+                if (item.exam.exam.examCode != "TYPEA-080910COD" && item.exam.exam.examCode != "MORSE-CODE") {
+                    item.exam.exam.completeRow = ""
+                } else if (item.exam.exam.completeRow.isEmpty()) {
+                    item.exam.exam.completeRow = "No"
+                }
+
+                db.answerKeyDao().updateExamResult(item.exam.exam)
+
+                for (element in item.exam.elements) {
+                    db.answerKeyDao().upsertElementScore(element)
+                }
+            }
+        }
+    }
+
     private fun setupFabs() {
         val fabMain = findViewById<FloatingActionButton>(R.id.fabMain)
         val fabMenuContainer = findViewById<LinearLayout>(R.id.fabMenuContainer)
@@ -231,9 +278,20 @@ class ResultsActivity : AppCompatActivity() {
         val fabChangeTypes = findViewById<ExtendedFloatingActionButton>(R.id.fabChangeTypes)
         val fabExport = findViewById<ExtendedFloatingActionButton>(R.id.fabExport)
         val fabDelete = findViewById<ExtendedFloatingActionButton>(R.id.fabDelete)
+        val rootView = findViewById<ViewGroup>(android.R.id.content)
+
+        // Helper function to cleanly auto-collapse the menu
+        fun closeFabMenu() {
+            if (isFabExpanded) {
+                fabMenuContainer.animate().translationY(150f).alpha(0f).setDuration(250)
+                    .withEndAction {
+                        fabMenuContainer.visibility = View.GONE
+                    }.start()
+                isFabExpanded = false
+            }
+        }
 
         // Keyboard Detection: Hide FAB when typing
-        val rootView = findViewById<View>(android.R.id.content)
         rootView.viewTreeObserver.addOnGlobalLayoutListener {
             val rect = android.graphics.Rect()
             rootView.getWindowVisibleDisplayFrame(rect)
@@ -251,63 +309,37 @@ class ResultsActivity : AppCompatActivity() {
             }
         }
 
-        // FAB Animation Logic
         fabMain.setOnClickListener {
-            isFabExpanded = !isFabExpanded
-            if (isFabExpanded) {
+            if (!isFabExpanded) {
                 fabMenuContainer.visibility = View.VISIBLE
                 fabMenuContainer.translationY = 150f
                 fabMenuContainer.alpha = 0f
                 fabMenuContainer.animate().translationY(0f).alpha(1f).setDuration(250).start()
+                isFabExpanded = true
             } else {
-                fabMenuContainer.animate().translationY(150f).alpha(0f).setDuration(250)
-                    .withEndAction {
-                        fabMenuContainer.visibility = View.GONE
-                    }.start()
+                closeFabMenu()
             }
         }
 
         fabChangeTypes.setOnClickListener {
-            startActivity(Intent(this, ChangeExamTypeActivity::class.java))
+            closeFabMenu() // Auto-close
+            // Use the launcher instead of startActivity
+            changeExamLauncher.launch(Intent(this, ChangeExamTypeActivity::class.java))
         }
 
         fabSave.setOnClickListener {
-            val date = etExamDate.text.toString()
-            val regionDisplay = spRegion.text.toString()
-            val regionIndex = REGIONS_DISPLAY.indexOf(regionDisplay)
-            val regionCode = if (regionIndex > 0) REGIONS_CODE[regionIndex] else ""
-            val place = etPlace.text.toString()
-
+            closeFabMenu() // Auto-close
             lifecycleScope.launch {
-                val db = AppDatabase.getDatabase(this@ResultsActivity)
-
-                for (item in adapter.getItems()) {
-                    if (item is ResultListItem.Row) {
-                        item.exam.exam.examDate = date
-                        item.exam.exam.region = regionCode
-                        item.exam.exam.placeOfExam = place
-
-                        if (item.exam.exam.examCode != "TYPEA-080910COD" && item.exam.exam.examCode != "MORSE-CODE") {
-                            item.exam.exam.completeRow = ""
-                        } else if (item.exam.exam.completeRow.isEmpty()) {
-                            // If it's a code exam but currently empty, default it to No
-                            item.exam.exam.completeRow = "No"
-                        }
-
-                        db.answerKeyDao().updateExamResult(item.exam.exam)
-
-                        for (element in item.exam.elements) {
-                            db.answerKeyDao().upsertElementScore(element)
-                        }
-                    }
-                }
-                Toast.makeText(this@ResultsActivity, "Saved all changes", Toast.LENGTH_SHORT).show()
+                saveAllDataToDb()
+                showCustomSnackbar(rootView, "Saved all changes")
                 loadData()
             }
         }
 
         fabExport.setOnClickListener {
+            closeFabMenu() // Auto-close
             lifecycleScope.launch {
+                saveAllDataToDb()
                 val exams = AppDatabase.getDatabase(this@ResultsActivity).answerKeyDao()
                     .getAllExamsWithElements()
                 exportBatchToCSV(this@ResultsActivity, exams)
@@ -315,7 +347,6 @@ class ResultsActivity : AppCompatActivity() {
         }
 
         fabDelete.setOnClickListener {
-            // Custom Delete Confirmation Dialog
             val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("Delete All Records")
                 .setMessage("Are you sure you want to permanently delete all scanned results?")
@@ -325,9 +356,10 @@ class ResultsActivity : AppCompatActivity() {
 
             dialog.setOnShowListener {
                 val btnYes = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
-                btnYes.setBackgroundColor("#2F9248".toColorInt()) // Green fill
-                btnYes.setTextColor(android.graphics.Color.WHITE)
+                btnYes.setBackgroundColor(Color.parseColor("#2F9248"))
+                btnYes.setTextColor(Color.WHITE)
                 btnYes.setOnClickListener {
+                    closeFabMenu() // Auto-close on confirm
                     lifecycleScope.launch {
                         AppDatabase.getDatabase(this@ResultsActivity).answerKeyDao()
                             .deleteAllResults()
@@ -335,15 +367,18 @@ class ResultsActivity : AppCompatActivity() {
                         etPlace.text.clear()
                         spRegion.setText(REGIONS_DISPLAY[0], false)
                         loadData()
-                        Toast.makeText(this@ResultsActivity, "All data deleted", Toast.LENGTH_SHORT)
-                            .show()
+                        showCustomSnackbar(rootView, "All data deleted")
                         dialog.dismiss()
                     }
                 }
 
                 val btnCancel = dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE)
-                btnCancel.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                btnCancel.setTextColor(android.graphics.Color.RED) // Red text
+                btnCancel.setBackgroundColor(Color.TRANSPARENT)
+                btnCancel.setTextColor(Color.RED)
+                btnCancel.setOnClickListener {
+                    closeFabMenu() // Auto-close on cancel
+                    dialog.dismiss()
+                }
             }
             dialog.show()
         }
@@ -361,7 +396,6 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
         data.clear()
         data.addAll(newData)
         notifyDataSetChanged()
-        notifyDataSetChanged()
     }
 
     override fun getItemViewType(position: Int) =
@@ -372,7 +406,6 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
         return if (viewType == TYPE_HEADER) {
             HeaderViewHolder(inflater.inflate(R.layout.item_result_header, parent, false))
         } else {
-            // Pass 'this' adapter reference to the RowViewHolder
             RowViewHolder(inflater.inflate(R.layout.item_result_row, parent, false), this)
         }
     }
@@ -395,7 +428,6 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
         fun bind(item: ResultListItem.Header) {
             tvHeaderTitle.text = getFriendlyExamName(item.examType)
 
-            // Keep only Seat and Set
             while (container.childCount > 2) container.removeViewAt(2)
 
             val weightPerDynamicColumn = 70f / item.elements.size
@@ -448,7 +480,6 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
                 override fun onNothingSelected(p0: AdapterView<*>?) {}
             }
 
-            // --- ABSENT LONG-PRESS LOGIC ---
             tvSeat.setOnLongClickListener {
                 val action = if (exam.isAbsent) "Present" else "Absent"
                 androidx.appcompat.app.AlertDialog.Builder(itemView.context)
@@ -457,11 +488,10 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
                     .setPositiveButton("Yes") { _, _ ->
                         exam.isAbsent = !exam.isAbsent
                         if (exam.isAbsent) {
-                            exam.completeRow = "" // Clear the row completion if absent
+                            exam.completeRow = ""
                         } else if (exam.examCode == "TYPEA-080910COD" || exam.examCode == "MORSE-CODE") {
-                            exam.completeRow = "No" // Bring back default if it's a code exam
+                            exam.completeRow = "No"
                         }
-                        // Refresh this specific row to apply UI changes
                         adapter.notifyItemChanged(bindingAdapterPosition)
                     }
                     .setNegativeButton("Cancel", null)
@@ -469,17 +499,13 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
                 true
             }
 
-            // Keep only Seat and Set
             while (container.childCount > 2) container.removeViewAt(2)
 
             val weightPerDynamicColumn = 70f / item.elements.size
 
-            // --- UI BRANCH: ABSENT vs PRESENT ---
             if (exam.isAbsent) {
-                // 1. Change Background to Pale Red
-                container.setBackgroundColor(android.graphics.Color.parseColor("#FFCDD2"))
+                container.setBackgroundColor("#FFCDD2".toColorInt())
 
-                // 2. Add single "ABSENT" TextView
                 val tvAbsent = TextView(container.context).apply {
                     layoutParams =
                         LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 70f)
@@ -488,15 +514,13 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
                     textAlignment = View.TEXT_ALIGNMENT_CENTER
                     setTypeface(null, android.graphics.Typeface.BOLD)
                     textSize = 16f
-                    setTextColor(android.graphics.Color.parseColor("#D32F2F")) // Dark Red text
+                    setTextColor("#D32F2F".toColorInt())
                 }
                 container.addView(tvAbsent)
 
             } else {
-                // 1. Revert Background to Transparent
-                container.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                container.setBackgroundColor(Color.TRANSPARENT)
 
-                // 2. Draw normal Element Fields
                 for (elementNum in item.elements) {
                     if (elementNum == 98) {
                         val wrapper = LinearLayout(container.context).apply {
@@ -531,7 +555,7 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
                             inputType = InputType.TYPE_CLASS_NUMBER
                             gravity = Gravity.CENTER
                             textSize = 16f
-                            setTextColor(android.graphics.Color.BLACK)
+                            setTextColor(Color.BLACK)
 
                             val score = elementMap[elementNum]?.score?.toString() ?: ""
                             setText(score)
@@ -541,14 +565,14 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
                                     val newScore = s?.toString()?.toIntOrNull() ?: 0
 
                                     if (newScore > 25) {
-                                        setBackgroundColor(android.graphics.Color.parseColor("#FFCDD2"))
-                                        Toast.makeText(
-                                            context,
-                                            "Maximum score is only up to 25",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
+                                        setBackgroundColor("#FFCDD2".toColorInt())
+                                        // Retrieve rootView contextually for the Snackbar
+                                        val activity = context as? Activity
+                                        activity?.findViewById<View>(android.R.id.content)?.let {
+                                            showCustomSnackbar(it, "Maximum score is only up to 25")
+                                        }
                                     } else {
-                                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                        setBackgroundColor(Color.TRANSPARENT)
                                     }
 
                                     val existingEntity = elementMap[elementNum]
@@ -570,21 +594,8 @@ class ResultsAdapter(private var data: MutableList<ResultListItem>) :
                                     }
                                 }
 
-                                override fun beforeTextChanged(
-                                    p0: CharSequence?,
-                                    p1: Int,
-                                    p2: Int,
-                                    p3: Int
-                                ) {
-                                }
-
-                                override fun onTextChanged(
-                                    p0: CharSequence?,
-                                    p1: Int,
-                                    p2: Int,
-                                    p3: Int
-                                ) {
-                                }
+                                override fun beforeTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
+                                override fun onTextChanged(p0: CharSequence?, p1: Int, p2: Int, p3: Int) {}
                             })
                         }
                         container.addView(et)

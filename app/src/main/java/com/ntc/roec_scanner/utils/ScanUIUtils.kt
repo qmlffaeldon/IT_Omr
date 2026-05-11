@@ -401,12 +401,9 @@ fun showFullscreenImage(
 
     togglesGrid.addView(row1); togglesGrid.addView(row2); bottomLayout.addView(togglesGrid); rootLayout.addView(bottomLayout)
 
-    // ==========================================
-    // REFACTORED LOGIC HANDLING
-    // ==========================================
     btnManualOverride.setOnClickListener {
         // Trigger the Override Dialog, but pass our LOCAL answers variable
-        com.ntc.roec_scanner.utils.showManualOverrideDialog(
+        showManualOverrideDialog(
             context, currentAnswersLocally
         ) { updatedAnswers ->
 
@@ -473,7 +470,7 @@ fun showManualOverrideDialog(
     val topSection = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(32, 48, 32, 32)
-        setBackgroundColor(Color.parseColor("#F5F5F5"))
+        setBackgroundColor("#F5F5F5".toColorInt())
     }
 
     val buttonsRow = RelativeLayout(context).apply {
@@ -633,7 +630,6 @@ fun showManualOverrideDialog(
                 setPadding(0, 24, 0, 24)
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 setTextColor(Color.DKGRAY)
-                // NO BORDER HERE
             })
         }
         headerRow.addView(choicesHeaderWrapper)
