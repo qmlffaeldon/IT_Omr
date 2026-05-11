@@ -666,6 +666,7 @@ class CameraScanActivity : AppCompatActivity() {
                     val row7to11 = android.widget.LinearLayout(this@CameraScanActivity).apply {
                         orientation = android.widget.LinearLayout.HORIZONTAL
                         weightSum = 4f
+                        minimumHeight = dp(80) // <-- FIX: Ensures Average section is never squished on single-element exams
                         layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
                     }
 
@@ -754,7 +755,7 @@ class CameraScanActivity : AppCompatActivity() {
                         setTypeface(null, android.graphics.Typeface.BOLD)
                         gravity = android.view.Gravity.CENTER
                         setTextColor(Color.BLACK)
-                        setPadding(dp(8), dp(8), dp(8), dp(8))
+                        setPadding(dp(4), dp(4), dp(4), dp(4))
                     })
                     row7to11.addView(rightAveragesCol)
                     root.addView(row7to11)
@@ -804,7 +805,6 @@ class CameraScanActivity : AppCompatActivity() {
                 updateResultsView(currentScores)
                 layout.addView(resultsContainer)
 
-                // --- NEW: Global Image Refresher Callback ---
                 var refreshImageCallback: (() -> Unit)? = null
 
                 if (currentCleanBitmap != null && currentExamCode != "MORSE-CODE") {
@@ -852,7 +852,6 @@ class CameraScanActivity : AppCompatActivity() {
 
                                         val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
 
-                                        // Keep Code Score if applicable
                                         if (currentExamCode == "TYPEA-080910COD" || currentExamCode == "MORSE-CODE") {
                                             newScores[99] = currentScores[99] ?: 0
                                         }
@@ -886,7 +885,6 @@ class CameraScanActivity : AppCompatActivity() {
 
                                     val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
 
-                                    // Keep Code Score if applicable
                                     if (currentExamCode == "TYPEA-080910COD" || currentExamCode == "MORSE-CODE") {
                                         newScores[99] = currentScores[99] ?: 0
                                     }
@@ -944,6 +942,8 @@ class CameraScanActivity : AppCompatActivity() {
                         }
 
                         val dp = { value: Int -> (value * resources.displayMetrics.density).toInt() }
+                        val inputHeight = dp(50) // <-- FIX: Strict consistent height across all inputs
+
                         fun getOutlineBackground(): android.graphics.drawable.GradientDrawable {
                             return android.graphics.drawable.GradientDrawable().apply {
                                 shape = android.graphics.drawable.GradientDrawable.RECTANGLE
@@ -965,8 +965,8 @@ class CameraScanActivity : AppCompatActivity() {
                             val typeIndex = com.ntc.roec_scanner.controllers.EXAM_TYPES.indexOf(currentExamCode)
                             setSelection(if (typeIndex >= 0) typeIndex else 0)
                             background = getOutlineBackground()
-                            setPadding(dp(12), dp(16), dp(12), dp(16))
-                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            setPadding(dp(12), 0, dp(12), 0)
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, inputHeight).apply {
                                 setMargins(0, dp(4), 0, 0)
                             }
                         }
@@ -996,8 +996,8 @@ class CameraScanActivity : AppCompatActivity() {
                             val setIndex = com.ntc.roec_scanner.controllers.SETS.indexOf(currentSetNumber.toString())
                             setSelection(if (setIndex >= 0) setIndex else 0)
                             background = getOutlineBackground()
-                            setPadding(dp(12), dp(16), dp(12), dp(16))
-                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            setPadding(dp(12), 0, dp(12), 0)
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, inputHeight).apply {
                                 setMargins(0, dp(4), 0, 0)
                             }
                         }
@@ -1019,8 +1019,8 @@ class CameraScanActivity : AppCompatActivity() {
                             inputType = android.text.InputType.TYPE_CLASS_NUMBER
                             setTextColor(Color.BLACK)
                             background = getOutlineBackground()
-                            setPadding(dp(12), dp(16), dp(12), dp(16))
-                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            setPadding(dp(12), 0, dp(12), 0)
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, inputHeight).apply {
                                 setMargins(0, dp(4), 0, 0)
                             }
                         }
@@ -1048,8 +1048,8 @@ class CameraScanActivity : AppCompatActivity() {
                             inputType = android.text.InputType.TYPE_CLASS_NUMBER
                             setTextColor(Color.BLACK)
                             background = getOutlineBackground()
-                            setPadding(dp(12), dp(16), dp(12), dp(16))
-                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                            setPadding(dp(12), 0, dp(12), 0)
+                            layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, inputHeight).apply {
                                 setMargins(0, dp(4), 0, dp(16))
                             }
                         }
@@ -1065,7 +1065,6 @@ class CameraScanActivity : AppCompatActivity() {
 
                         editLayout.addView(codeInputContainer)
 
-                        // Toggle Code Inputs based on Exam Type selection
                         spExamType.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
                             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                                 val selectedType = com.ntc.roec_scanner.controllers.EXAM_TYPES[position]
@@ -1101,7 +1100,6 @@ class CameraScanActivity : AppCompatActivity() {
                                     return@setOnClickListener
                                 }
 
-                                // Handle Code Data based on the *newly selected* exam type
                                 if (newExamCode == "TYPEA-080910COD" || newExamCode == "MORSE-CODE") {
                                     val manualCodeScore = etCodeScore.text.toString().toIntOrNull() ?: 0
                                     if (manualCodeScore > 25) {
@@ -1142,17 +1140,14 @@ class CameraScanActivity : AppCompatActivity() {
                                         if (updatedResult.debugBitmap != null) currentCleanBitmap = updatedResult.debugBitmap
                                         currentAnswers = updatedResult.answers
                                     } else if (currentExamCode == "MORSE-CODE") {
-                                        // Clear out physical bubble states if they swap to pure morse code
                                         currentCleanBitmap = null
                                         currentAnswers = emptyList()
                                     }
 
                                     refreshImageCallback?.invoke()
 
-                                    // Regrade new bubbles
                                     val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
 
-                                    // Protect the manual code score we just saved!
                                     if (currentScores.containsKey(99)) {
                                         newScores[99] = currentScores[99]!!
                                     }
