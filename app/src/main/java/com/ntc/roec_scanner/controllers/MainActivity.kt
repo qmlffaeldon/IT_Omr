@@ -69,8 +69,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btn_answers).setOnClickListener {
             Log.d("MainActivity", "answerkey button clicked")
-            //startActivity(Intent(this, Answer_key::class.java))
-            pickExcelFile.launch("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            startActivity(Intent(this, EditAnswerKeyActivity::class.java))
         }
 
         findViewById<Button>(R.id.btn_results).setOnClickListener {

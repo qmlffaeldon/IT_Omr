@@ -53,4 +53,10 @@ interface AnswerKeyDao {
 
     @Query("DELETE FROM element_scores WHERE examResultId = :examId")
     suspend fun deleteElementsForExam(examId: Long)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAnswerKey(key: AnswerKeyEntity)
+
+    @Query("SELECT * FROM answer_keys")
+    suspend fun getAllAnswerKeys(): List<AnswerKeyEntity>
 }
