@@ -486,7 +486,6 @@ class CameraScanActivity : AppCompatActivity() {
     }
 
     // 3. THE SAVER & DISPLAYER
-    // 3. THE SAVER & DISPLAYER
     private fun saveAndDisplayResults(
         examCode: String,
         setNumber: Int,
@@ -805,21 +804,28 @@ class CameraScanActivity : AppCompatActivity() {
                 updateResultsView(currentScores)
                 layout.addView(resultsContainer)
 
+                // --- NEW: Global Image Refresher Callback ---
+                var refreshImageCallback: (() -> Unit)? = null
+
                 if (currentCleanBitmap != null && currentExamCode != "MORSE-CODE") {
                     val imageView = android.widget.ImageView(this@CameraScanActivity).apply {
                         adjustViewBounds = true
                         setPadding(0, 0, 0, 32)
                     }
 
-                    fun refreshDialogImage() {
-                        if (currentCleanBitmap == null) return
-                        val bmp = com.ntc.roec_scanner.modules.drawDebugOverlays(
-                            currentCleanBitmap!!, currentQrData, currentAnswers, currentCorrectAnswersMap,
-                            true, true, false, true
-                        )
-                        imageView.setImageBitmap(bmp)
+                    refreshImageCallback = {
+                        if (currentCleanBitmap == null || currentExamCode == "MORSE-CODE") {
+                            imageView.visibility = View.GONE
+                        } else {
+                            imageView.visibility = View.VISIBLE
+                            val bmp = com.ntc.roec_scanner.modules.drawDebugOverlays(
+                                currentCleanBitmap!!, currentQrData, currentAnswers, currentCorrectAnswersMap,
+                                true, true, false, true
+                            )
+                            imageView.setImageBitmap(bmp)
+                        }
                     }
-                    refreshDialogImage()
+                    refreshImageCallback?.invoke()
 
                     imageView.setOnClickListener {
                         com.ntc.roec_scanner.utils.showFullscreenImage(
@@ -842,7 +848,7 @@ class CameraScanActivity : AppCompatActivity() {
                                         currentCleanBitmap = updatedResult.debugBitmap
                                         currentAnswers = updatedResult.answers
                                         currentCorners = newCorners
-                                        refreshDialogImage()
+                                        refreshImageCallback?.invoke()
 
                                         val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
 
@@ -876,7 +882,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                                 lifecycleScope.launch {
                                     currentAnswers = updatedAnswers
-                                    refreshDialogImage()
+                                    refreshImageCallback?.invoke()
 
                                     val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
 
@@ -1023,7 +1029,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                         editLayout.addView(rowLayout)
 
-                        // --- NEW: Dynamic Code Inputs ---
+                        // --- Dynamic Code Inputs ---
                         val codeInputContainer = android.widget.LinearLayout(this@CameraScanActivity).apply {
                             orientation = android.widget.LinearLayout.VERTICAL
                             layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -1141,7 +1147,7 @@ class CameraScanActivity : AppCompatActivity() {
                                         currentAnswers = emptyList()
                                     }
 
-                                    refreshDialogImage()
+                                    refreshImageCallback?.invoke()
 
                                     // Regrade new bubbles
                                     val newScores = com.ntc.roec_scanner.grading.compareWithAnswerKey(currentAnswers, answerKeyDao, currentExamCode, currentSetNumber).toMutableMap()
@@ -1166,7 +1172,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                                     updateResultsView(currentScores)
                                     editPopup.dismiss()
-                                    android.widget.Toast.makeText(this@CameraScanActivity, "Details Updated!", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(this@CameraScanActivity, "Details Updated & Rescanned!", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
 
