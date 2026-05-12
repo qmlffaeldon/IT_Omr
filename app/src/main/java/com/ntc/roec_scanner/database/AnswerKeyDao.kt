@@ -59,4 +59,7 @@ interface AnswerKeyDao {
 
     @Query("SELECT * FROM answer_keys")
     suspend fun getAllAnswerKeys(): List<AnswerKeyEntity>
+
+    @Query("DELETE FROM exam_results WHERE id = :id")
+    suspend fun deleteExamResultById(id: Long)
 }

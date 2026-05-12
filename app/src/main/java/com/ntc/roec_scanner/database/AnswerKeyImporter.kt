@@ -15,6 +15,7 @@ object AnswerKeyImporter {
         "TYPEA-080910COD"  to listOf(8, 9, 10, 99),
         "TYPEB-02"         to listOf(2),
         "TYPEB-050607"     to listOf(5, 6, 7),
+        "TYPEC-02"         to listOf(2),
         "TYPEC-020304"     to listOf(2, 3, 4),
         "TYPEC-0304"       to listOf(3, 4),
         "TYPED-02"         to listOf(2),

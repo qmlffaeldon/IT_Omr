@@ -14,7 +14,12 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.CheckBox
 import android.widget.ImageButton
+import android.widget.Spinner
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -67,10 +72,15 @@ class CameraScanActivity : AppCompatActivity() {
     private lateinit var loadingText: MaterialTextView
     private lateinit var switchAutoCapture: MaterialSwitch
 
+    // --- OVERRIDE CONTROLS ---
+    private lateinit var spOverrideExam: Spinner
+    private lateinit var cbSaveAsNew: CheckBox
+    private var overrideExamsList = mutableListOf<String>()
+    private lateinit var overrideAdapter: ArrayAdapter<String>
+
     private var lastScannedExamCode: String = "UNKNOWN"
     private var lastScannedSetNumber: Int = 1
 
-    // --- NEW: AUTO CAPTURE STATES ---
     private var autoCaptureJob: Job? = null
     private var isProcessingCapture = false
 
@@ -83,13 +93,32 @@ class CameraScanActivity : AppCompatActivity() {
         loadingOverlay = findViewById(R.id.loadingOverlay)
         loadingText = findViewById(R.id.loadingText)
         switchAutoCapture = findViewById(R.id.switch_auto_capture)
+        spOverrideExam = findViewById(R.id.sp_override_exam)
+        cbSaveAsNew = findViewById(R.id.cb_save_as_new)
 
         // Init OpenCV
         OpenCVLoader.initDebug()
 
+        // Initialize the adapter once
+        overrideExamsList.add("[Automatic]")
+        overrideAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, overrideExamsList)
+        spOverrideExam.adapter = overrideAdapter
+
+        spOverrideExam.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (position > 0) {
+                    cbSaveAsNew.visibility = View.VISIBLE
+                } else {
+                    cbSaveAsNew.visibility = View.GONE
+                    cbSaveAsNew.isChecked = false
+                }
+                (view as? TextView)?.setTextColor(Color.WHITE)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
         val captureButton = findViewById<ImageButton>(R.id.btn_capture)
         captureButton.setOnClickListener {
-            // Lock captures to prevent duplicate triggers
             if (isProcessingCapture) return@setOnClickListener
             isProcessingCapture = true
 
@@ -165,10 +194,7 @@ class CameraScanActivity : AppCompatActivity() {
         }
 
         val btnBack = findViewById<MaterialButton>(R.id.btn_back)
-
-        btnBack.setOnClickListener {
-            finish()
-        }
+        btnBack.setOnClickListener { finish() }
 
         findViewById<MaterialButton>(R.id.btn_manual_absent).setOnClickListener {
             showManualAbsenteeDialog(this) { absenteesList ->
@@ -176,9 +202,14 @@ class CameraScanActivity : AppCompatActivity() {
                     try {
                         val db = AppDatabase.getDatabase(this@CameraScanActivity)
 
+                        // Respect the override logic for manual absentees too!
+                        val isOverride = spOverrideExam.selectedItemPosition > 0
+                        val gradingExamCode = if (isOverride) spOverrideExam.selectedItem.toString() else lastScannedExamCode
+                        val savingExamCode = if (isOverride && cbSaveAsNew.isChecked) gradingExamCode else lastScannedExamCode
+
                         for (seat in absenteesList) {
                             val absentResult = ExamResultsEntity(
-                                examCode = lastScannedExamCode,
+                                examCode = savingExamCode,
                                 setNumber = lastScannedSetNumber,
                                 seatNumber = seat,
                                 totalScore = 0,
@@ -189,7 +220,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                         AlertDialog.Builder(this@CameraScanActivity)
                             .setTitle("Absentees Saved ✓")
-                            .setMessage("${absenteesList.size} absentees saved for $lastScannedExamCode (Set $lastScannedSetNumber).\n\nSeats: $absenteesList")
+                            .setMessage("${absenteesList.size} absentees saved for $savingExamCode (Set $lastScannedSetNumber).\n\nSeats: $absenteesList")
                             .setPositiveButton("OK", null)
                             .setOnDismissListener { isProcessingCapture = false }
                             .show()
@@ -244,7 +275,6 @@ class CameraScanActivity : AppCompatActivity() {
     private fun hideLoading() {
         runOnUiThread {
             loadingOverlay.visibility = View.GONE
-
             findViewById<ImageButton>(R.id.btn_capture).isEnabled = true
             findViewById<ImageButton>(R.id.btn_upload).isEnabled = true
             findViewById<ImageButton>(R.id.btn_flash).isEnabled = true
@@ -307,15 +337,37 @@ class CameraScanActivity : AppCompatActivity() {
                                             lifecycleScope.launch {
                                                 try {
                                                     val db = AppDatabase.getDatabase(this@CameraScanActivity)
+
+                                                    // APPLY OVERRIDE LOGIC HERE TOO
+                                                    val originalExamCode = validation.qrData?.testType ?: "UNKNOWN"
+                                                    val isOverride = spOverrideExam.selectedItemPosition > 0
+                                                    val gradingExamCode = if (isOverride) spOverrideExam.selectedItem.toString() else originalExamCode
+                                                    val savingExamCode = if (isOverride && cbSaveAsNew.isChecked) gradingExamCode else originalExamCode
+
                                                     val absentResult = ExamResultsEntity(
-                                                        examCode = validation.qrData?.testType ?: "UNKNOWN",
+                                                        examCode = savingExamCode,
                                                         setNumber = validation.qrData?.setNumber ?: 1,
                                                         seatNumber = validation.qrData?.seatNumber ?: 1,
                                                         totalScore = 0,
                                                         isAbsent = true
                                                     )
                                                     db.answerKeyDao().insertExamResult(absentResult)
-                                                } catch (e: Exception) { Log.e("OMR", "Failed to save absent result", e) }
+
+                                                    AlertDialog.Builder(this@CameraScanActivity)
+                                                        .setTitle("Marked Absent ✓")
+                                                        .setMessage("Seat ${validation.qrData?.seatNumber ?: 1} has been marked absent.")
+                                                        .setPositiveButton("OK", null)
+                                                        .setOnDismissListener { isProcessingCapture = false }
+                                                        .show()
+
+                                                    topCard.alpha = 1f
+                                                    topCard.visibility = View.VISIBLE
+                                                    topCard.postDelayed({ fadeOutViews(topCard) }, 3000)
+
+                                                } catch (e: Exception) {
+                                                    Log.e("OMR", "Failed to save absent result", e)
+                                                    isProcessingCapture = false
+                                                }
                                             }
                                         }
                                         .setNegativeButton("No, Re-scan", null)
@@ -383,32 +435,45 @@ class CameraScanActivity : AppCompatActivity() {
         detectedAnswers: List<DetectedAnswer>,
         qrData: QRCodeData?,
         cleanBitmap: android.graphics.Bitmap?,
-        correctAnswersMap: Map<Int, String>,
+        correctAnswersMap: Map<Int, String>, // Passed from OpenCV but might be obsolete due to override
         originalBitmap: android.graphics.Bitmap?,
         corners: List<org.opencv.core.Point>?
     ) {
         lifecycleScope.launch {
             val setNumber = qrData?.setNumber ?: 1
             val seatNumber = qrData?.seatNumber ?: 1
-            val examCode = qrData?.testType ?: "UNKNOWN"
+            val originalExamCode = qrData?.testType ?: "UNKNOWN"
 
-            lastScannedExamCode = examCode
+            // --- OVERRIDE LOGIC ---
+            val isOverride = spOverrideExam.selectedItemPosition > 0
+            val gradingExamCode = if (isOverride) spOverrideExam.selectedItem.toString() else originalExamCode
+            val savingExamCode = if (isOverride && cbSaveAsNew.isChecked) gradingExamCode else originalExamCode
+
+            lastScannedExamCode = savingExamCode
             lastScannedSetNumber = setNumber
 
-            val standardScores = compareWithAnswerKey(detectedAnswers, answerKeyDao, examCode, setNumber).toMutableMap()
+            // We must regenerate the CorrectAnswersMap so the Debug Image draws the right boxes!
+            val newCorrectAnswersMap = mutableMapOf<Int, String>()
+            com.ntc.roec_scanner.grading.ExamConfigurations.getTestNumbersForTestType(gradingExamCode).forEach { t ->
+                answerKeyDao.getAnswerKey(gradingExamCode, t, setNumber)?.let {
+                    newCorrectAnswersMap[t] = it.answerString
+                }
+            }
 
-            if (examCode == "TYPEA-080910COD" || examCode == "MORSE-CODE") {
-                showManualCodeEntryDialog(examCode, seatNumber) { codeScore, completeRow ->
+            val standardScores = compareWithAnswerKey(detectedAnswers, answerKeyDao, gradingExamCode, setNumber).toMutableMap()
+
+            if (gradingExamCode == "TYPEA-080910COD" || gradingExamCode == "MORSE-CODE") {
+                showManualCodeEntryDialog(gradingExamCode, seatNumber) { codeScore, completeRow ->
                     standardScores[99] = codeScore
                     saveAndDisplayResults(
-                        examCode, setNumber, seatNumber, standardScores, completeRow,
-                        detectedAnswers, qrData, cleanBitmap, correctAnswersMap, originalBitmap, corners
+                        savingExamCode, setNumber, seatNumber, standardScores, completeRow,
+                        detectedAnswers, qrData, cleanBitmap, newCorrectAnswersMap, originalBitmap, corners
                     )
                 }
             } else {
                 saveAndDisplayResults(
-                    examCode, setNumber, seatNumber, standardScores, "",
-                    detectedAnswers, qrData, cleanBitmap, correctAnswersMap, originalBitmap, corners
+                    savingExamCode, setNumber, seatNumber, standardScores, "",
+                    detectedAnswers, qrData, cleanBitmap, newCorrectAnswersMap, originalBitmap, corners
                 )
             }
         }
@@ -475,7 +540,6 @@ class CameraScanActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    // 3. THE SAVER & DISPLAYER
     private fun saveAndDisplayResults(
         examCode: String,
         setNumber: Int,
@@ -500,6 +564,8 @@ class CameraScanActivity : AppCompatActivity() {
         var currentScores = finalScores.toMutableMap()
         var currentCompleteRow = completeRow
 
+        var currentExamResultId = 0L
+
         lifecycleScope.launch {
             try {
                 val db = AppDatabase.getDatabase(this@CameraScanActivity)
@@ -512,11 +578,12 @@ class CameraScanActivity : AppCompatActivity() {
                     totalScore = totalScore,
                     completeRow = currentCompleteRow
                 )
-                val examResultId = db.answerKeyDao().insertExamResult(examResult)
+
+                currentExamResultId = db.answerKeyDao().insertExamResult(examResult)
 
                 val elementScores = currentScores.map { (testNumber, score) ->
                     ElementScoreEntity(
-                        examResultId = examResultId,
+                        examResultId = currentExamResultId,
                         elementNumber = testNumber,
                         score = score,
                         maxScore = 25
@@ -845,13 +912,21 @@ class CameraScanActivity : AppCompatActivity() {
 
                                         try {
                                             val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
+
+                                            dbOverride.answerKeyDao().deleteExamResultById(currentExamResultId)
+                                            dbOverride.answerKeyDao().deleteElementsForExam(currentExamResultId)
+
                                             val newResult = ExamResultsEntity(
-                                                examCode = currentExamCode, setNumber = currentSetNumber, seatNumber = currentSeatNumber,
-                                                totalScore = currentScores.values.sum(), completeRow = currentCompleteRow
+                                                examCode = currentExamCode,
+                                                setNumber = currentSetNumber,
+                                                seatNumber = currentSeatNumber,
+                                                totalScore = currentScores.values.sum(),
+                                                completeRow = currentCompleteRow
                                             )
-                                            val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+                                            currentExamResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+
                                             val newElementScores = currentScores.map { (testNumber, score) ->
-                                                ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
+                                                ElementScoreEntity(examResultId = currentExamResultId, elementNumber = testNumber, score = score, maxScore = 25)
                                             }
                                             dbOverride.answerKeyDao().upsertElementScores(newElementScores)
                                         } catch (e: Exception) { Log.e("OMR", "Failed to update DB after warp fix", e) }
@@ -878,13 +953,21 @@ class CameraScanActivity : AppCompatActivity() {
 
                                     try {
                                         val dbOverride = AppDatabase.getDatabase(this@CameraScanActivity)
+
+                                        dbOverride.answerKeyDao().deleteExamResultById(currentExamResultId)
+                                        dbOverride.answerKeyDao().deleteElementsForExam(currentExamResultId)
+
                                         val newResult = ExamResultsEntity(
-                                            examCode = currentExamCode, setNumber = currentSetNumber, seatNumber = currentSeatNumber,
-                                            totalScore = currentScores.values.sum(), completeRow = currentCompleteRow
+                                            examCode = currentExamCode,
+                                            setNumber = currentSetNumber,
+                                            seatNumber = currentSeatNumber,
+                                            totalScore = currentScores.values.sum(),
+                                            completeRow = currentCompleteRow
                                         )
-                                        val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+                                        currentExamResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+
                                         val newElementScores = currentScores.map { (testNumber, score) ->
-                                            ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
+                                            ElementScoreEntity(examResultId = currentExamResultId, elementNumber = testNumber, score = score, maxScore = 25)
                                         }
                                         dbOverride.answerKeyDao().upsertElementScores(newElementScores)
                                     } catch (e: Exception) { Log.e("OMR", "Failed to update DB after override", e) }
@@ -1137,15 +1220,24 @@ class CameraScanActivity : AppCompatActivity() {
                                     currentScores = newScores
 
                                     try {
+                                        val dbOverride2 = AppDatabase.getDatabase(this@CameraScanActivity)
+
+                                        dbOverride2.answerKeyDao().deleteExamResultById(currentExamResultId)
+                                        dbOverride2.answerKeyDao().deleteElementsForExam(currentExamResultId)
+
                                         val newResult = ExamResultsEntity(
-                                            examCode = currentExamCode, setNumber = currentSetNumber, seatNumber = currentSeatNumber,
-                                            totalScore = currentScores.values.sum(), completeRow = currentCompleteRow
+                                            examCode = currentExamCode,
+                                            setNumber = currentSetNumber,
+                                            seatNumber = currentSeatNumber,
+                                            totalScore = currentScores.values.sum(),
+                                            completeRow = currentCompleteRow
                                         )
-                                        val newResultId = dbOverride.answerKeyDao().insertExamResult(newResult)
+                                        currentExamResultId = dbOverride2.answerKeyDao().insertExamResult(newResult)
+
                                         val newElementScores = currentScores.map { (testNumber, score) ->
-                                            ElementScoreEntity(examResultId = newResultId, elementNumber = testNumber, score = score, maxScore = 25)
+                                            ElementScoreEntity(examResultId = currentExamResultId, elementNumber = testNumber, score = score, maxScore = 25)
                                         }
-                                        dbOverride.answerKeyDao().upsertElementScores(newElementScores)
+                                        dbOverride2.answerKeyDao().upsertElementScores(newElementScores)
                                     } catch (e: Exception) { Log.e("OMR", "Failed to update DB after edit", e) }
 
                                     updateResultsView(currentScores)
@@ -1223,6 +1315,40 @@ class CameraScanActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        refreshOverrideSpinner()
+    }
+
+    private fun refreshOverrideSpinner() {
+        lifecycleScope.launch {
+            val db = AppDatabase.getDatabase(this@CameraScanActivity)
+            val keys = db.answerKeyDao().getAllAnswerKeys()
+            val distinctExams = keys.map { it.examCode }.distinct().sorted()
+
+            // Save the currently selected item to restore it after refresh
+            val currentSelection = if (spOverrideExam.selectedItemPosition >= 0 && overrideExamsList.isNotEmpty()) {
+                overrideExamsList[spOverrideExam.selectedItemPosition]
+            } else {
+                "[Automatic]"
+            }
+
+            overrideExamsList.clear()
+            overrideExamsList.add("[Automatic]")
+            overrideExamsList.addAll(distinctExams)
+
+            overrideAdapter.notifyDataSetChanged()
+
+            // Restore previous selection if it still exists
+            val newIndex = overrideExamsList.indexOf(currentSelection)
+            if (newIndex >= 0) {
+                spOverrideExam.setSelection(newIndex)
+            } else {
+                spOverrideExam.setSelection(0)
+            }
+        }
+    }
+
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
@@ -1266,20 +1392,16 @@ class CameraScanActivity : AppCompatActivity() {
                             overlay?.updateCorners(feedback.corners, feedback.isSkewed)
 
                             val captureBtn = findViewById<ImageButton>(R.id.btn_capture)
-                            // Lock the button state if we are currently capturing
                             val ready = overlay?.hasValidDocument == true && !isProcessingCapture
                             captureBtn.isEnabled = ready
                             captureBtn.alpha = if (ready) 1f else 0.4f
 
-                            // Verify all auto-capture conditions:
-                            // Switch ON, Valid scan, App has focus (no dialogs open), Loading overlay hidden
                             val canAutoCapture = ready && switchAutoCapture.isChecked && hasWindowFocus() && loadingOverlay.visibility != View.VISIBLE
 
                             if (canAutoCapture) {
                                 if (autoCaptureJob == null) {
                                     autoCaptureJob = lifecycleScope.launch {
                                         delay(1000)
-                                        // Final check immediately before trigger
                                         if (switchAutoCapture.isChecked && hasWindowFocus() && loadingOverlay.visibility != View.VISIBLE && !isProcessingCapture) {
                                             captureBtn.performClick()
                                         }
@@ -1414,14 +1536,17 @@ class CameraScanActivity : AppCompatActivity() {
                                                         lifecycleScope.launch {
                                                             try {
                                                                 val db = AppDatabase.getDatabase(this@CameraScanActivity)
-                                                                val examCode = validation.qrData?.testType ?: "UNKNOWN"
-                                                                val setNumber = validation.qrData?.setNumber ?: 1
-                                                                val seatNumber = validation.qrData?.seatNumber ?: 1
+
+                                                                // ABSENT OVERRIDE LOGIC
+                                                                val originalExamCode = validation.qrData?.testType ?: "UNKNOWN"
+                                                                val isOverride = spOverrideExam.selectedItemPosition > 0
+                                                                val gradingExamCode = if (isOverride) spOverrideExam.selectedItem.toString() else originalExamCode
+                                                                val savingExamCode = if (isOverride && cbSaveAsNew.isChecked) gradingExamCode else originalExamCode
 
                                                                 val absentResult = ExamResultsEntity(
-                                                                    examCode = examCode,
-                                                                    setNumber = setNumber,
-                                                                    seatNumber = seatNumber,
+                                                                    examCode = savingExamCode,
+                                                                    setNumber = validation.qrData?.setNumber ?: 1,
+                                                                    seatNumber = validation.qrData?.seatNumber ?: 1,
                                                                     totalScore = 0,
                                                                     isAbsent = true
                                                                 )
@@ -1429,7 +1554,7 @@ class CameraScanActivity : AppCompatActivity() {
 
                                                                 AlertDialog.Builder(this@CameraScanActivity)
                                                                     .setTitle("Marked Absent ✓")
-                                                                    .setMessage("Seat $seatNumber has been marked absent.")
+                                                                    .setMessage("Seat ${validation.qrData?.seatNumber ?: 1} has been marked absent.")
                                                                     .setPositiveButton("OK", null)
                                                                     .setOnDismissListener { isProcessingCapture = false }
                                                                     .show()

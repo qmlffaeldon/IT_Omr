@@ -88,6 +88,7 @@ val EXAM_TYPES = arrayOf(
     "TYPEA-080910COD",
     "TYPEB-02",
     "TYPEB-050607",
+    "TYPEC-02",
     "TYPEC-020304",
     "TYPEC-0304",
     "TYPED-02",
@@ -106,6 +107,7 @@ fun getFriendlyExamName(examCode: String): String = when (examCode) {
     "TYPEA-080910COD" -> "Amateur Class A (Elements 8, 9, & 10 with Code)"
     "TYPEB-02" -> "Amateur Class B (Element 2)"
     "TYPEB-050607" -> "Amateur Class B (Elements 5, 6, & 7)"
+    "TYPEC-02" -> "Amateur Class C (Element 2)"
     "TYPEC-020304" -> "Amateur Class C (Elements 2, 3, & 4)"
     "TYPEC-0304" -> "Amateur Class C (Elements 3 & 4)"
     "TYPED-02" -> "Amateur Class D (Element 2)"

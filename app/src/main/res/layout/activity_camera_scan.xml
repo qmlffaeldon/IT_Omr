@@ -152,17 +152,32 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
 
-    <com.google.android.material.materialswitch.MaterialSwitch
-        android:id="@+id/switch_auto_capture"
+    <LinearLayout
+        android:id="@+id/ll_override_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Auto Capture"
-        android:textColor="@android:color/white"
-        android:textStyle="bold"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        app:layout_constraintTop_toTopOf="@id/btn_back"
         app:layout_constraintBottom_toBottomOf="@id/btn_back"
-        app:layout_constraintEnd_toStartOf="@id/btn_manual_absent"
         app:layout_constraintStart_toEndOf="@id/btn_back"
-        app:layout_constraintTop_toTopOf="@id/btn_back" />
+        app:layout_constraintEnd_toStartOf="@id/btn_manual_absent">
+
+        <Spinner
+            android:id="@+id/sp_override_exam"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:backgroundTint="@android:color/white" />
+
+        <CheckBox
+            android:id="@+id/cb_save_as_new"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Save as new Exam Code?"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:visibility="gone"/>
+    </LinearLayout>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_manual_absent"
@@ -179,6 +194,18 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.0" />
+
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/switch_auto_capture"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:text="Auto Capture"
+        android:textColor="@android:color/white"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toTopOf="@id/btn_capture"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
     <!-- LOADING OVERLAY -->
     <com.google.android.material.card.MaterialCardView
